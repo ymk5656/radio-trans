@@ -3,6 +3,9 @@ import { useRef, useCallback, useState } from 'react'
 import { TranscriptEntry } from '@/lib/storage'
 
 const CHUNK_DURATION_MS = 2500
+// How many blobs to buffer during Groq slow-downs before dropping the oldest.
+// 4 × 2.5s = 10s of backlog tolerated.
+const MAX_QUEUE = 4
 
 export type TranscribeStatus =
   | 'idle'
@@ -33,17 +36,17 @@ export function useTranscription({
   isTranslatingRef,
 }: UseTranscriptionOptions) {
   const [status, setStatus] = useState<TranscribeStatus>('idle')
-  const isRunningRef = useRef(false)
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const vadFramesRef = useRef<boolean[]>([])
-  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // ── Session ID: incremented on each startTranscription call ──────────────
-  // Prevents old in-flight results from a previous channel from being added.
-  const sessionIdRef = useRef(0)
-  // ── AbortController for the current in-flight fetch ───────────────────────
-  const abortControllerRef = useRef<AbortController | null>(null)
 
+  const isRunningRef    = useRef(false)
+  const sessionIdRef    = useRef(0)
+  const recorderRef     = useRef<MediaRecorder | null>(null)
+  const vadFramesRef    = useRef<boolean[]>([])
+  const vadTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  const abortRef        = useRef<AbortController | null>(null)
+  const blobQueueRef    = useRef<Blob[]>([])
+  const isDrainingRef   = useRef(false)
+
+  // ── VAD ───────────────────────────────────────────────────────────────────
   const startVADSampling = useCallback(() => {
     vadFramesRef.current = []
     if (vadTimerRef.current) clearInterval(vadTimerRef.current)
@@ -57,8 +60,7 @@ export function useTranscription({
       const fftSize = analyser.fftSize
       const lowBin = Math.floor((300 * fftSize) / sampleRate)
       const highBin = Math.ceil((3400 * fftSize) / sampleRate)
-      let speech = 0
-      let total = 0
+      let speech = 0, total = 0
       for (let i = 0; i < binCount; i++) {
         const v = data[i] / 255
         total += v
@@ -69,51 +71,14 @@ export function useTranscription({
   }, [analyserRef])
 
   const stopVADAndEvaluate = useCallback((): boolean => {
-    if (vadTimerRef.current) {
-      clearInterval(vadTimerRef.current)
-      vadTimerRef.current = null
-    }
+    if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null }
     const frames = vadFramesRef.current
-    if (frames.length === 0) return false
-    const ratio = frames.filter(Boolean).length / frames.length
     vadFramesRef.current = []
-    return ratio >= 0.15
+    if (frames.length === 0) return false
+    return frames.filter(Boolean).length / frames.length >= 0.15
   }, [])
 
-  const recordChunk = useCallback((): Promise<Blob | null> => {
-    return new Promise(resolve => {
-      const stream = mediaStreamRef.current
-      if (!stream) return resolve(null)
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/ogg'
-
-      let recorder: MediaRecorder
-      try {
-        recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
-      } catch {
-        recorder = new MediaRecorder(stream)
-      }
-      recorderRef.current = recorder
-      chunksRef.current = []
-
-      recorder.ondataavailable = e => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
-      recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: mimeType }))
-      recorder.onerror = () => resolve(null)
-
-      startVADSampling()
-      recorder.start()
-      setTimeout(() => {
-        if (recorder.state === 'recording') recorder.stop()
-      }, CHUNK_DURATION_MS)
-    })
-  }, [mediaStreamRef, startVADSampling])
-
+  // ── Transcribe one blob via Groq ──────────────────────────────────────────
   const transcribeBlob = useCallback(
     async (
       blob: Blob,
@@ -126,18 +91,14 @@ export function useTranscription({
       if (language) fd.append('language', language)
 
       const res = await fetch('/api/transcribe', { method: 'POST', body: fd, signal })
-
       if (!res.ok) {
         if (res.status === 429) {
-          // Rate limit — surface retry-after so the loop can back off correctly
           const retryAfter = parseInt(res.headers.get('retry-after') ?? '5', 10)
-          const err = Object.assign(new Error('rate_limit'), { retryAfter })
-          throw err
+          throw Object.assign(new Error('rate_limit'), { retryAfter })
         }
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error ?? `HTTP ${res.status}`)
       }
-
       const data = await res.json()
       const text = typeof data.text === 'string' ? data.text.trim() : ''
       if (!text) return null
@@ -146,43 +107,86 @@ export function useTranscription({
     [isTranslatingRef, language]
   )
 
-  const loop = useCallback(async () => {
-    // Capture session ID at loop start — any result from a previous session
-    // will fail the guard check and be discarded.
+  // ── Start ─────────────────────────────────────────────────────────────────
+  const startTranscription = useCallback(() => {
+    if (isRunningRef.current) return
+    isRunningRef.current = true
+    sessionIdRef.current++          // new session — invalidates any stale results
+    blobQueueRef.current = []
+    isDrainingRef.current = false
+    setStatus('receiving')
+
     const mySession = sessionIdRef.current
-    let pendingTranscription: Promise<void> | null = null
 
-    while (isRunningRef.current && mySession === sessionIdRef.current) {
-      setStatus('receiving')
+    // ── Recording loop ───────────────────────────────────────────────────
+    // Runs INDEPENDENTLY of transcription. Next chunk starts the instant the
+    // current recorder fires onstop — no gap regardless of API latency.
+    function scheduleChunk() {
+      if (!isRunningRef.current || mySession !== sessionIdRef.current) return
+      const stream = mediaStreamRef.current
+      if (!stream) return
 
-      const blob = await recordChunk()
-      if (!blob || !isRunningRef.current || mySession !== sessionIdRef.current) break
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg'
 
-      const hasSpeech = stopVADAndEvaluate()
+      const localChunks: Blob[] = []
+      let recorder: MediaRecorder
+      try {
+        recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
+      } catch {
+        recorder = new MediaRecorder(stream)
+      }
+      recorderRef.current = recorder
 
-      if (!hasSpeech) {
-        setStatus('skipped')
-        onSkipped()
-        continue
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) localChunks.push(e.data) }
+
+      recorder.onstop = () => {
+        // Bail out if stopped or channel switched
+        if (!isRunningRef.current || mySession !== sessionIdRef.current) return
+
+        const blob = new Blob(localChunks, { type: mimeType })
+        const hasSpeech = stopVADAndEvaluate()
+
+        if (hasSpeech) {
+          // Drop the oldest if backlog is too deep (Groq outage scenario)
+          if (blobQueueRef.current.length >= MAX_QUEUE) blobQueueRef.current.shift()
+          blobQueueRef.current.push(blob)
+          drainQueue()             // no-op if already draining
+        } else {
+          setStatus('skipped')
+          onSkipped()
+        }
+
+        // ↓ Immediately chain the next recording — ZERO intentional gap
+        scheduleChunk()
       }
 
-      // Wait for previous transcription (virtually instant with Groq + 2.5s chunks)
-      if (pendingTranscription) {
-        await pendingTranscription
-        pendingTranscription = null
-      }
-      if (!isRunningRef.current || mySession !== sessionIdRef.current) break
+      startVADSampling()
+      recorder.start()
+      setTimeout(() => { if (recorder.state === 'recording') recorder.stop() }, CHUNK_DURATION_MS)
+    }
 
-      setStatus('transcribing')
+    // ── Transcription drain loop ─────────────────────────────────────────
+    // Runs as a serial async queue, completely decoupled from recording.
+    // Even if Groq takes 5 s, scheduleChunk keeps running without pause.
+    async function drainQueue() {
+      if (isDrainingRef.current) return   // already processing
+      isDrainingRef.current = true
 
-      const capturedBlob = blob
-      const controller = new AbortController()
-      abortControllerRef.current = controller
+      while (
+        blobQueueRef.current.length > 0 &&
+        isRunningRef.current &&
+        mySession === sessionIdRef.current
+      ) {
+        const blob = blobQueueRef.current.shift()!
+        setStatus('transcribing')
 
-      pendingTranscription = (async () => {
+        const controller = new AbortController()
+        abortRef.current = controller
+
         try {
-          const result = await transcribeBlob(capturedBlob, controller.signal)
-          // Double-check: only add entry if this is still the active session
+          const result = await transcribeBlob(blob, controller.signal)
           if (result && isRunningRef.current && mySession === sessionIdRef.current) {
             const now = new Date()
             const ts = [
@@ -199,31 +203,27 @@ export function useTranscription({
               translation: result.translation,
             })
           }
+          if (mySession === sessionIdRef.current && isRunningRef.current) setStatus('receiving')
         } catch (err) {
-          // AbortError = cancelled intentionally (channel switch / stop) — silent
-          if (err instanceof Error && err.name === 'AbortError') return
+          if (err instanceof Error && err.name === 'AbortError') break   // cancelled — exit
 
           const retryAfter = (err as { retryAfter?: number }).retryAfter
-
           if (mySession === sessionIdRef.current) {
             setStatus('error')
-            if (retryAfter) {
-              // Groq rate limit: wait the server-specified duration
-              await new Promise(r => setTimeout(r, retryAfter * 1000))
-            } else {
-              await new Promise(r => setTimeout(r, 2000))
-            }
+            // Wait out the rate limit (recording continues unaffected)
+            await new Promise(r => setTimeout(r, (retryAfter ?? 3) * 1000))
+            if (mySession === sessionIdRef.current && isRunningRef.current) setStatus('receiving')
           }
         }
-      })()
-      // ↑ NOT awaited — recording starts immediately for the next chunk
+      }
+
+      isDrainingRef.current = false
     }
 
-    if (pendingTranscription) await pendingTranscription
-    // Only reset status if this session is still the active one
-    if (mySession === sessionIdRef.current) setStatus('idle')
+    scheduleChunk()
   }, [
-    recordChunk,
+    mediaStreamRef,
+    startVADSampling,
     stopVADAndEvaluate,
     transcribeBlob,
     channelId,
@@ -232,26 +232,16 @@ export function useTranscription({
     onSkipped,
   ])
 
-  const startTranscription = useCallback(() => {
-    if (isRunningRef.current) return
-    isRunningRef.current = true
-    sessionIdRef.current++   // invalidates all previous sessions
-    loop()
-  }, [loop])
-
+  // ── Stop ──────────────────────────────────────────────────────────────────
   const stopTranscription = useCallback(() => {
     isRunningRef.current = false
-    // Cancel any in-flight API request immediately — prevents stale results
-    // from appearing after the channel has changed.
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
-    if (vadTimerRef.current) {
-      clearInterval(vadTimerRef.current)
-      vadTimerRef.current = null
-    }
-    if (recorderRef.current?.state === 'recording') {
-      recorderRef.current.stop()
-    }
+    sessionIdRef.current++          // immediately invalidate this session
+    abortRef.current?.abort()
+    abortRef.current = null
+    blobQueueRef.current = []
+    isDrainingRef.current = false
+    if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null }
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
     setStatus('idle')
   }, [])
 
