@@ -2,8 +2,6 @@
 import { useRef, useCallback, useState } from 'react'
 import { TranscriptEntry } from '@/lib/storage'
 
-// 2.5s chunks: text appears ~2× more frequently than the old 5s
-// Groq inference is ~0.3-0.5s, well within one chunk period
 const CHUNK_DURATION_MS = 2500
 
 export type TranscribeStatus =
@@ -18,7 +16,7 @@ interface UseTranscriptionOptions {
   analyserRef: React.RefObject<AnalyserNode | null>
   channelId: string
   channelName: string
-  language?: string  // ISO-639-1 hint (e.g. 'ko', 'en') — skips Whisper language detection
+  language?: string
   onEntry: (entry: TranscriptEntry) => void
   onSkipped: () => void
   isTranslatingRef: React.RefObject<boolean>
@@ -40,6 +38,11 @@ export function useTranscription({
   const chunksRef = useRef<Blob[]>([])
   const vadFramesRef = useRef<boolean[]>([])
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // ── Session ID: incremented on each startTranscription call ──────────────
+  // Prevents old in-flight results from a previous channel from being added.
+  const sessionIdRef = useRef(0)
+  // ── AbortController for the current in-flight fetch ───────────────────────
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const startVADSampling = useCallback(() => {
     vadFramesRef.current = []
@@ -61,8 +64,7 @@ export function useTranscription({
         total += v
         if (i >= lowBin && i <= highBin) speech += v
       }
-      const hasSpeech = total > 0 && speech / (total || 1) > 0.01
-      vadFramesRef.current.push(hasSpeech)
+      vadFramesRef.current.push(total > 0 && speech / (total || 1) > 0.01)
     }, 100)
   }, [analyserRef])
 
@@ -91,7 +93,6 @@ export function useTranscription({
 
       let recorder: MediaRecorder
       try {
-        // 32 kbps is plenty for speech recognition — 4× smaller than default 128 kbps
         recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
       } catch {
         recorder = new MediaRecorder(stream)
@@ -102,14 +103,11 @@ export function useTranscription({
       recorder.ondataavailable = e => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
-      recorder.onstop = () => {
-        resolve(new Blob(chunksRef.current, { type: mimeType }))
-      }
+      recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: mimeType }))
       recorder.onerror = () => resolve(null)
 
       startVADSampling()
       recorder.start()
-
       setTimeout(() => {
         if (recorder.state === 'recording') recorder.stop()
       }, CHUNK_DURATION_MS)
@@ -117,18 +115,29 @@ export function useTranscription({
   }, [mediaStreamRef, startVADSampling])
 
   const transcribeBlob = useCallback(
-    async (blob: Blob): Promise<{ text: string; translation?: string } | null> => {
+    async (
+      blob: Blob,
+      signal: AbortSignal
+    ): Promise<{ text: string; translation?: string } | null> => {
       const fd = new FormData()
       const ext = blob.type.includes('ogg') ? 'ogg' : 'webm'
       fd.append('audio', blob, `audio.${ext}`)
       if (isTranslatingRef.current) fd.append('translate', 'true')
       if (language) fd.append('language', language)
 
-      const res = await fetch('/api/transcribe', { method: 'POST', body: fd })
+      const res = await fetch('/api/transcribe', { method: 'POST', body: fd, signal })
+
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error ?? 'Transcription failed')
+        if (res.status === 429) {
+          // Rate limit — surface retry-after so the loop can back off correctly
+          const retryAfter = parseInt(res.headers.get('retry-after') ?? '5', 10)
+          const err = Object.assign(new Error('rate_limit'), { retryAfter })
+          throw err
+        }
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `HTTP ${res.status}`)
       }
+
       const data = await res.json()
       const text = typeof data.text === 'string' ? data.text.trim() : ''
       if (!text) return null
@@ -138,45 +147,43 @@ export function useTranscription({
   )
 
   const loop = useCallback(async () => {
-    // pendingTranscription holds the in-flight API call for the previous chunk.
-    // Recording the NEXT chunk starts immediately — the two run in parallel.
-    // We only await the previous call before firing the next one, which is
-    // virtually instant since Groq (~0.3 s) finishes long before 2.5 s elapse.
+    // Capture session ID at loop start — any result from a previous session
+    // will fail the guard check and be discarded.
+    const mySession = sessionIdRef.current
     let pendingTranscription: Promise<void> | null = null
 
-    while (isRunningRef.current) {
+    while (isRunningRef.current && mySession === sessionIdRef.current) {
       setStatus('receiving')
 
-      // ── Record next chunk (2.5 s) ─────────────────────────────────────────
-      // While this is happening, any previous transcription is running in
-      // parallel on the server — free pipeline overlap.
       const blob = await recordChunk()
-      if (!blob || !isRunningRef.current) break
+      if (!blob || !isRunningRef.current || mySession !== sessionIdRef.current) break
 
       const hasSpeech = stopVADAndEvaluate()
 
       if (!hasSpeech) {
         setStatus('skipped')
         onSkipped()
-        // No artificial delay — next recording starts immediately
         continue
       }
 
-      // ── Await previous transcription (nearly always already done) ─────────
+      // Wait for previous transcription (virtually instant with Groq + 2.5s chunks)
       if (pendingTranscription) {
         await pendingTranscription
         pendingTranscription = null
       }
-      if (!isRunningRef.current) break
+      if (!isRunningRef.current || mySession !== sessionIdRef.current) break
 
       setStatus('transcribing')
 
-      // ── Fire transcription and immediately loop to start recording ─────────
       const capturedBlob = blob
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
       pendingTranscription = (async () => {
         try {
-          const result = await transcribeBlob(capturedBlob)
-          if (result && isRunningRef.current) {
+          const result = await transcribeBlob(capturedBlob, controller.signal)
+          // Double-check: only add entry if this is still the active session
+          if (result && isRunningRef.current && mySession === sessionIdRef.current) {
             const now = new Date()
             const ts = [
               now.getHours().toString().padStart(2, '0'),
@@ -193,21 +200,28 @@ export function useTranscription({
             })
           }
         } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Unknown error'
-          console.error('Transcription error:', msg)
-          setStatus('error')
-          await new Promise(r => setTimeout(r, 2000))
+          // AbortError = cancelled intentionally (channel switch / stop) — silent
+          if (err instanceof Error && err.name === 'AbortError') return
+
+          const retryAfter = (err as { retryAfter?: number }).retryAfter
+
+          if (mySession === sessionIdRef.current) {
+            setStatus('error')
+            if (retryAfter) {
+              // Groq rate limit: wait the server-specified duration
+              await new Promise(r => setTimeout(r, retryAfter * 1000))
+            } else {
+              await new Promise(r => setTimeout(r, 2000))
+            }
+          }
         }
       })()
-      // ↑ intentionally NOT awaited — loop immediately continues to record next chunk
+      // ↑ NOT awaited — recording starts immediately for the next chunk
     }
 
-    // Drain the last in-flight transcription before exiting
-    if (pendingTranscription) {
-      setStatus('transcribing')
-      await pendingTranscription
-    }
-    setStatus('idle')
+    if (pendingTranscription) await pendingTranscription
+    // Only reset status if this session is still the active one
+    if (mySession === sessionIdRef.current) setStatus('idle')
   }, [
     recordChunk,
     stopVADAndEvaluate,
@@ -221,11 +235,16 @@ export function useTranscription({
   const startTranscription = useCallback(() => {
     if (isRunningRef.current) return
     isRunningRef.current = true
+    sessionIdRef.current++   // invalidates all previous sessions
     loop()
   }, [loop])
 
   const stopTranscription = useCallback(() => {
     isRunningRef.current = false
+    // Cancel any in-flight API request immediately — prevents stale results
+    // from appearing after the channel has changed.
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
     if (vadTimerRef.current) {
       clearInterval(vadTimerRef.current)
       vadTimerRef.current = null

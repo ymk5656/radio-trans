@@ -64,6 +64,16 @@ export async function POST(req: NextRequest) {
 
     return Response.json({ text, translation })
   } catch (err) {
+    // Groq SDK wraps HTTP errors — expose 429 + retry-after to the client
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const groqErr = err as any
+    if (groqErr?.status === 429) {
+      const retryAfter = String(groqErr?.headers?.['retry-after'] ?? '5')
+      return new Response(
+        JSON.stringify({ error: 'Rate limit — retry after ' + retryAfter + 's' }),
+        { status: 429, headers: { 'Content-Type': 'application/json', 'retry-after': retryAfter } }
+      )
+    }
     const message = err instanceof Error ? err.message : 'Transcription failed'
     return Response.json({ error: message }, { status: 500 })
   }
