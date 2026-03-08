@@ -19,6 +19,7 @@ export interface Channel {
   logo?: string
   isCustom?: boolean
   order?: number
+  language?: string         // ISO-639-1 hint for Whisper (e.g. 'ko', 'en') — skips auto-detection
 }
 
 export const DEFAULT_CHANNELS: Channel[] = [
@@ -30,6 +31,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'Washington DC, United States',
     mode: 'stream',
     streamUrl: 'https://npr-ice.streamguys1.com/live.mp3',
+    language: 'en',
     order: 0,
   },
   {
@@ -39,6 +41,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'Jersey City NJ, United States',
     mode: 'stream',
     streamUrl: 'https://stream0.wfmu.org/freeform-128k',
+    language: 'en',
     order: 1,
   },
   {
@@ -48,6 +51,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'London, United Kingdom',
     mode: 'stream',
     streamUrl: 'https://media-ice.musicradio.com/ClassicFMMP3',
+    language: 'en',
     order: 2,
   },
 
@@ -60,6 +64,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     apiResolver: { type: 'kbs', code: '21' },
+    language: 'ko',
     logo: '/logos/kbs.png',
     order: 3,
   },
@@ -70,6 +75,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     apiResolver: { type: 'mbc', ch: 'sfm' },
+    language: 'ko',
     logo: '/logos/mbc.png',
     order: 4,
   },
@@ -80,6 +86,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     apiResolver: { type: 'sbs', ch: 'lovefm' },
+    language: 'ko',
     logo: '/logos/sbs.png',
     order: 5,
   },
@@ -90,6 +97,7 @@ export const DEFAULT_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     streamUrl: 'https://ebsonair.ebs.co.kr/fmradiofamilypc/familypc1m/playlist.m3u8',
+    language: 'ko',
     logo: '/logos/ebs.png',
     order: 6,
   },
@@ -105,6 +113,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'London, United Kingdom',
     mode: 'stream',
     streamUrl: 'https://stream.live.vc.bbcmedia.co.uk/bbc_world_service',
+    language: 'en',
   },
   {
     id: 'bbc-r4',
@@ -113,6 +122,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'London, United Kingdom',
     mode: 'stream',
     streamUrl: 'https://stream.live.vc.bbcmedia.co.uk/bbc_radio_fourfm',
+    language: 'en',
   },
   {
     id: 'bbc-r6',
@@ -121,6 +131,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'London, United Kingdom',
     mode: 'stream',
     streamUrl: 'https://stream.live.vc.bbcmedia.co.uk/bbc_6music',
+    language: 'en',
   },
   {
     id: 'bbc-r1',
@@ -129,6 +140,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'London, United Kingdom',
     mode: 'stream',
     streamUrl: 'https://stream.live.vc.bbcmedia.co.uk/bbc_radio_one',
+    language: 'en',
   },
   // US Public Radio
   {
@@ -138,6 +150,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'New York NY, United States',
     mode: 'stream',
     streamUrl: 'https://fm939.wnyc.org/wnycfm.aac',
+    language: 'en',
   },
   // Europe
   {
@@ -147,6 +160,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'Paris, France',
     mode: 'stream',
     streamUrl: 'https://icecast.radiofrance.fr/franceinter-midfi.mp3',
+    language: 'fr',
   },
   {
     id: 'rfi-en',
@@ -155,6 +169,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'Paris, France',
     mode: 'stream',
     streamUrl: 'https://rfienglish.streamguys1.com/rfi-128.mp3',
+    language: 'en',
   },
   {
     id: 'swiss-jazz',
@@ -171,6 +186,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'London, United Kingdom',
     mode: 'stream',
     streamUrl: 'https://media-ice.musicradio.com/JazzFMMP3',
+    language: 'en',
   },
   // Music / Internet
   {
@@ -205,6 +221,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     apiResolver: { type: 'kbs', code: '24' },
+    language: 'ko',
     logo: '/logos/kbs.png',
   },
   {
@@ -214,6 +231,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     apiResolver: { type: 'kbs', code: '25' },
+    language: 'ko',
     logo: '/logos/kbs.png',
   },
   {
@@ -223,6 +241,7 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     location: 'Seoul, South Korea',
     mode: 'stream',
     apiResolver: { type: 'mbc', ch: 'mfm' },
+    language: 'ko',
     logo: '/logos/mbc.png',
   },
   {

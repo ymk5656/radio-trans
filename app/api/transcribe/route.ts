@@ -3,9 +3,15 @@ import Groq from 'groq-sdk'
 
 export const runtime = 'nodejs'
 
+// Module-level singleton — avoids re-instantiating the SDK on every request
+let _groq: Groq | null = null
+function getGroq(): Groq {
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY! })
+  return _groq
+}
+
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) {
+  if (!process.env.GROQ_API_KEY) {
     return Response.json({ error: 'GROQ_API_KEY not configured' }, { status: 500 })
   }
 
@@ -22,14 +28,18 @@ export async function POST(req: NextRequest) {
   }
 
   const translate = formData.get('translate') === 'true'
+  const language = (formData.get('language') as string | null) || undefined
 
   try {
-    const groq = new Groq({ apiKey })
+    const groq = getGroq()
 
+    // whisper-large-v3-turbo: best speed/accuracy trade-off on Groq
+    // language hint skips auto-detection (~50-100 ms saved per request)
     const transcription = await groq.audio.transcriptions.create({
       file: audio,
       model: 'whisper-large-v3-turbo',
       response_format: 'text',
+      ...(language ? { language } : {}),
     })
 
     const text = (typeof transcription === 'string' ? transcription : '').trim()

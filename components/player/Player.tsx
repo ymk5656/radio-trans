@@ -65,6 +65,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     analyserRef,
     channelId: channel?.id ?? '',
     channelName: channel?.name ?? '',
+    language: channel?.language,
     onEntry: onTranscriptEntry,
     onSkipped,
     isTranslatingRef,

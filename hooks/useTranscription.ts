@@ -2,8 +2,9 @@
 import { useRef, useCallback, useState } from 'react'
 import { TranscriptEntry } from '@/lib/storage'
 
-// 5 seconds for near-realtime feel; Groq inference is fast (~0.3-0.5s)
-const CHUNK_DURATION_MS = 5000
+// 2.5s chunks: text appears ~2× more frequently than the old 5s
+// Groq inference is ~0.3-0.5s, well within one chunk period
+const CHUNK_DURATION_MS = 2500
 
 export type TranscribeStatus =
   | 'idle'
@@ -17,9 +18,10 @@ interface UseTranscriptionOptions {
   analyserRef: React.RefObject<AnalyserNode | null>
   channelId: string
   channelName: string
+  language?: string  // ISO-639-1 hint (e.g. 'ko', 'en') — skips Whisper language detection
   onEntry: (entry: TranscriptEntry) => void
   onSkipped: () => void
-  isTranslatingRef: React.RefObject<boolean>  // mutable ref — avoids stale closure in loop
+  isTranslatingRef: React.RefObject<boolean>
 }
 
 export function useTranscription({
@@ -27,6 +29,7 @@ export function useTranscription({
   analyserRef,
   channelId,
   channelName,
+  language,
   onEntry,
   onSkipped,
   isTranslatingRef,
@@ -88,7 +91,8 @@ export function useTranscription({
 
       let recorder: MediaRecorder
       try {
-        recorder = new MediaRecorder(stream, { mimeType })
+        // 32 kbps is plenty for speech recognition — 4× smaller than default 128 kbps
+        recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
       } catch {
         recorder = new MediaRecorder(stream)
       }
@@ -98,21 +102,16 @@ export function useTranscription({
       recorder.ondataavailable = e => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
-
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType })
-        resolve(blob)
+        resolve(new Blob(chunksRef.current, { type: mimeType }))
       }
-
       recorder.onerror = () => resolve(null)
 
       startVADSampling()
       recorder.start()
 
       setTimeout(() => {
-        if (recorder.state === 'recording') {
-          recorder.stop()
-        }
+        if (recorder.state === 'recording') recorder.stop()
       }, CHUNK_DURATION_MS)
     })
   }, [mediaStreamRef, startVADSampling])
@@ -122,8 +121,8 @@ export function useTranscription({
       const fd = new FormData()
       const ext = blob.type.includes('ogg') ? 'ogg' : 'webm'
       fd.append('audio', blob, `audio.${ext}`)
-      // Read translate from ref — reflects latest toggle without stale closure
       if (isTranslatingRef.current) fd.append('translate', 'true')
+      if (language) fd.append('language', language)
 
       const res = await fetch('/api/transcribe', { method: 'POST', body: fd })
       if (!res.ok) {
@@ -135,13 +134,22 @@ export function useTranscription({
       if (!text) return null
       return { text, translation: data.translation }
     },
-    [isTranslatingRef]
+    [isTranslatingRef, language]
   )
 
   const loop = useCallback(async () => {
+    // pendingTranscription holds the in-flight API call for the previous chunk.
+    // Recording the NEXT chunk starts immediately — the two run in parallel.
+    // We only await the previous call before firing the next one, which is
+    // virtually instant since Groq (~0.3 s) finishes long before 2.5 s elapse.
+    let pendingTranscription: Promise<void> | null = null
+
     while (isRunningRef.current) {
       setStatus('receiving')
 
+      // ── Record next chunk (2.5 s) ─────────────────────────────────────────
+      // While this is happening, any previous transcription is running in
+      // parallel on the server — free pipeline overlap.
       const blob = await recordChunk()
       if (!blob || !isRunningRef.current) break
 
@@ -150,35 +158,54 @@ export function useTranscription({
       if (!hasSpeech) {
         setStatus('skipped')
         onSkipped()
-        await new Promise(r => setTimeout(r, 200))
+        // No artificial delay — next recording starts immediately
         continue
       }
 
-      setStatus('transcribing')
-      try {
-        const result = await transcribeBlob(blob)
-        if (result && isRunningRef.current) {
-          const now = new Date()
-          const ts = [
-            now.getHours().toString().padStart(2, '0'),
-            now.getMinutes().toString().padStart(2, '0'),
-            now.getSeconds().toString().padStart(2, '0'),
-          ].join(':')
-          onEntry({
-            id: `${channelId}-${Date.now()}`,
-            timestamp: ts,
-            channelId,
-            channelName,
-            text: result.text,
-            translation: result.translation,
-          })
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error'
-        console.error('Transcription error:', msg)
-        setStatus('error')
-        await new Promise(r => setTimeout(r, 2000))
+      // ── Await previous transcription (nearly always already done) ─────────
+      if (pendingTranscription) {
+        await pendingTranscription
+        pendingTranscription = null
       }
+      if (!isRunningRef.current) break
+
+      setStatus('transcribing')
+
+      // ── Fire transcription and immediately loop to start recording ─────────
+      const capturedBlob = blob
+      pendingTranscription = (async () => {
+        try {
+          const result = await transcribeBlob(capturedBlob)
+          if (result && isRunningRef.current) {
+            const now = new Date()
+            const ts = [
+              now.getHours().toString().padStart(2, '0'),
+              now.getMinutes().toString().padStart(2, '0'),
+              now.getSeconds().toString().padStart(2, '0'),
+            ].join(':')
+            onEntry({
+              id: `${channelId}-${Date.now()}`,
+              timestamp: ts,
+              channelId,
+              channelName,
+              text: result.text,
+              translation: result.translation,
+            })
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown error'
+          console.error('Transcription error:', msg)
+          setStatus('error')
+          await new Promise(r => setTimeout(r, 2000))
+        }
+      })()
+      // ↑ intentionally NOT awaited — loop immediately continues to record next chunk
+    }
+
+    // Drain the last in-flight transcription before exiting
+    if (pendingTranscription) {
+      setStatus('transcribing')
+      await pendingTranscription
     }
     setStatus('idle')
   }, [
@@ -209,9 +236,5 @@ export function useTranscription({
     setStatus('idle')
   }, [])
 
-  return {
-    status,
-    startTranscription,
-    stopTranscription,
-  }
+  return { status, startTranscription, stopTranscription }
 }
