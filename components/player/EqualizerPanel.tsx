@@ -31,9 +31,10 @@ export function EqualizerPanel({ initialGains, onBandChange, onReset, onGainsCha
   })
 
   const handleSlider = useCallback((index: number, raw: string) => {
-    // range input gives 0..240, map to +12..-12
+    // range input gives 0..240; with writing-mode:vertical-lr direction:rtl, top=240, bottom=0
+    // map top(240)→+12dB, bottom(0)→−12dB
     const sliderVal = parseInt(raw, 10)
-    const gainDb = 12 - (sliderVal / 240) * 24
+    const gainDb = (sliderVal / 240) * 24 - 12
     const rounded = Math.round(gainDb * 10) / 10
     setGains(prev => {
       const next = [...prev]
@@ -88,47 +89,55 @@ export function EqualizerPanel({ initialGains, onBandChange, onReset, onGainsCha
         </button>
       </div>
 
-      {/* Sliders */}
-      <div className="flex items-end justify-between gap-1">
-        {EQ_BANDS.map((band, i) => {
-          const gain = gains[i]
-          const sliderVal = Math.round(((12 - gain) / 24) * 240)
-          return (
-            <div key={band.freq} className="flex flex-col items-center gap-1 flex-1">
-              {/* dB label */}
-              <span className={`text-[9px] font-mono tabular-nums ${
-                gain > 0 ? 'text-green-400' : gain < 0 ? 'text-orange-400' : 'text-[#606060]'
-              }`}>
-                {gain > 0 ? `+${gain}` : gain}
-              </span>
+      {/* Sliders + vertical scale */}
+      <div className="flex gap-1">
+        {/* Vertical dB scale — aligns with slider area */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {/* spacer matches gain label height */}
+          <span className="text-[9px] invisible select-none">0</span>
+          <div className="flex flex-col justify-between h-28">
+            <span className="text-[8px] text-[#505050] leading-none">+12</span>
+            <span className="text-[8px] text-[#505050] leading-none">0</span>
+            <span className="text-[8px] text-[#505050] leading-none">−12</span>
+          </div>
+          {/* spacer matches freq label height */}
+          <span className="text-[9px] invisible select-none">Hz</span>
+        </div>
 
-              {/* Vertical slider track */}
-              <div className="relative h-28 flex items-center justify-center">
-                <input
-                  type="range"
-                  min={0}
-                  max={240}
-                  value={sliderVal}
-                  onChange={e => handleSlider(i, e.target.value)}
-                  className="eq-slider"
-                  style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '20px', height: '112px' }}
-                />
-                {/* Center marker line */}
-                <div className="absolute w-3 h-px bg-[#404040] pointer-events-none" style={{ top: '50%' }} />
+        <div className="flex items-end justify-between gap-1 flex-1">
+          {EQ_BANDS.map((band, i) => {
+            const gain = gains[i]
+            const sliderVal = Math.round(((gain + 12) / 24) * 240)
+            return (
+              <div key={band.freq} className="flex flex-col items-center gap-1 flex-1">
+                {/* dB label */}
+                <span className={`text-[9px] font-mono tabular-nums ${
+                  gain > 0 ? 'text-green-400' : gain < 0 ? 'text-orange-400' : 'text-[#606060]'
+                }`}>
+                  {gain > 0 ? `+${gain}` : gain}
+                </span>
+
+                {/* Vertical slider track */}
+                <div className="relative h-28 flex items-center justify-center">
+                  <input
+                    type="range"
+                    min={0}
+                    max={240}
+                    value={sliderVal}
+                    onChange={e => handleSlider(i, e.target.value)}
+                    className="eq-slider"
+                    style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '20px', height: '112px' }}
+                  />
+                  {/* Center marker line */}
+                  <div className="absolute w-3 h-px bg-[#404040] pointer-events-none" style={{ top: '50%' }} />
+                </div>
+
+                {/* Frequency label */}
+                <span className="text-[9px] text-[#707070]">{band.short}</span>
               </div>
-
-              {/* Frequency label */}
-              <span className="text-[9px] text-[#707070]">{band.short}</span>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* dB scale labels */}
-      <div className="flex justify-between px-1 text-[8px] text-[#505050]">
-        <span>+12</span>
-        <span>0</span>
-        <span>-12</span>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

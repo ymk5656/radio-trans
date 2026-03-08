@@ -137,7 +137,10 @@ export default function Home() {
       </div>
 
       {/* ── Mobile bottom tab bar ───────────────────────────────── */}
-      <div className="md:hidden flex border-t border-[#404040] bg-[#1c1c1c] flex-shrink-0">
+      <div
+        className="md:hidden flex border-t border-[#404040] bg-[#1c1c1c] flex-shrink-0"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         <button
           onClick={() => setMobilePanel('player')}
           className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-xs transition-colors
@@ -156,12 +159,15 @@ export default function Home() {
         </button>
       </div>
 
-      <BottomBar
-        transcripts={transcripts}
-        skippedCount={skippedCount}
-        onRefresh={handleRefresh}
-        onSave={handleSave}
-      />
+      {/* BottomBar — desktop only on mobile it clutters the small screen */}
+      <div className="hidden md:block">
+        <BottomBar
+          transcripts={transcripts}
+          skippedCount={skippedCount}
+          onRefresh={handleRefresh}
+          onSave={handleSave}
+        />
+      </div>
     </div>
   )
 }

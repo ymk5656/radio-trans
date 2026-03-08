@@ -26,6 +26,8 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hlsRef = useRef<any>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const stallLastTimeRef = useRef<number>(-1)
+  const stallCountRef = useRef<number>(0)
   const [volume, setVolume] = useState(1)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [isTranslating, setIsTranslating] = useState(false)
@@ -251,6 +253,8 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     setIsPlaying(false)
     setLoadState('idle')
     setErrorMsg('')
+    stallLastTimeRef.current = -1
+    stallCountRef.current = 0
 
     if (!channel) return
     setupChannel(channel, audio, setupId)
@@ -262,6 +266,40 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     setGainVolume(volume)
     if (audioRef.current) audioRef.current.volume = volume
   }, [volume, setGainVolume])
+
+  // Stall watchdog: detects frozen currentTime and attempts recovery
+  useEffect(() => {
+    if (!isPlaying) {
+      stallLastTimeRef.current = -1
+      stallCountRef.current = 0
+      return
+    }
+    const CHECK_MS = 5000
+    const STALL_STRIKES = 2  // 2 × 5s = 10s before recovery attempt
+    const id = setInterval(() => {
+      const audio = audioRef.current
+      if (!audio || audio.paused) return
+      const ct = audio.currentTime
+      if (ct > 0 && ct === stallLastTimeRef.current) {
+        stallCountRef.current++
+        if (stallCountRef.current >= STALL_STRIKES) {
+          stallCountRef.current = 0
+          if (hlsRef.current) {
+            hlsRef.current.startLoad()
+          } else if (audio.src) {
+            const src = audio.src
+            audio.load()
+            audio.src = src
+            audio.play().catch(() => {})
+          }
+        }
+      } else {
+        stallCountRef.current = 0
+        stallLastTimeRef.current = ct
+      }
+    }, CHECK_MS)
+    return () => clearInterval(id)
+  }, [isPlaying])
 
   const handlePlayPause = useCallback(async () => {
     const audio = audioRef.current
