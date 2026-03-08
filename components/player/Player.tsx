@@ -6,7 +6,6 @@ import { useTranscription, TranscribeStatus } from '@/hooks/useTranscription'
 import { TranscriptEntry } from '@/lib/storage'
 import { loadEQGains, saveEQGains } from '@/lib/storage'
 import { EqualizerPanel } from './EqualizerPanel'
-import { WaveformCanvas } from './WaveformCanvas'
 import { PlaybackControls } from './PlaybackControls'
 import { TranscribeButton } from './TranscribeButton'
 import { StatusBadge } from './StatusBadge'
@@ -388,8 +387,6 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
         ) : (
           /* Stream mode — waveform always visible */
           <>
-            <WaveformCanvas analyserRef={analyserRef} isActive={isPlaying} />
-
             {/* Loading states */}
             {(loadState === 'resolving' || loadState === 'loading') && (
               <div className="text-xs text-[#909090] animate-pulse">
