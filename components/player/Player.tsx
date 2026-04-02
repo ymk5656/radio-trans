@@ -4,12 +4,12 @@ import { Channel } from '@/lib/channels'
 import { useAudioEngine } from '@/hooks/useAudioEngine'
 import { useTranscription, TranscribeStatus } from '@/hooks/useTranscription'
 import { TranscriptEntry } from '@/lib/storage'
-import { loadEQGains, saveEQGains } from '@/lib/storage'
+import { loadEQGains, saveEQGains, getPlaybackDelay, savePlaybackDelay } from '@/lib/storage'
 import { EqualizerPanel } from './EqualizerPanel'
 import { PlaybackControls } from './PlaybackControls'
 import { TranscribeButton } from './TranscribeButton'
 import { StatusBadge } from './StatusBadge'
-import { WifiOff } from 'lucide-react'
+import { WifiOff, Radio } from 'lucide-react'
 
 interface PlayerProps {
   channel: Channel | null
@@ -29,6 +29,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
   const stallCountRef = useRef<number>(0)
   const [volume, setVolume] = useState(1)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [syncDelay, setSyncDelay] = useState(() => getPlaybackDelay())
   const [isTranslating, setIsTranslating] = useState(false)
   const [transcribeStatus, setTranscribeStatus] = useState<TranscribeStatus>('idle')
   const [errorMsg, setErrorMsg] = useState('')
@@ -49,6 +50,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     setVolume: setGainVolume,
     setEQBand,
     resetEQ,
+    setDelay,
   } = useAudioEngine()
 
   useEffect(() => {
@@ -244,6 +246,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
 
     if (isTranscribing) {
       stopTranscription()
+      setDelay(0)
       setIsTranscribing(false)
     }
 
@@ -325,12 +328,20 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
   const handleTranscribeToggle = useCallback(() => {
     if (isTranscribing) {
       stopTranscription()
+      setDelay(0)
       setIsTranscribing(false)
     } else {
       startTranscription()
+      setDelay(syncDelay)
       setIsTranscribing(true)
     }
-  }, [isTranscribing, startTranscription, stopTranscription])
+  }, [isTranscribing, startTranscription, stopTranscription, setDelay, syncDelay])
+
+  const handleSyncDelayChange = useCallback((val: number) => {
+    setSyncDelay(val)
+    savePlaybackDelay(val)
+    if (isTranscribing) setDelay(val)
+  }, [isTranscribing, setDelay])
 
   const handleTranslateToggle = useCallback(() => {
     setIsTranslating(prev => !prev)
@@ -341,8 +352,8 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
   const transcribeDisabled = isIframe
 
   const eqPanel = channel ? (
-    <div className="w-full bg-[#1e1e1e] rounded-xl border border-[#383838] p-4">
-      <div className="text-[10px] text-[#707070] uppercase tracking-widest mb-3">Equalizer</div>
+    <div className="w-full bg-[#1e1e1e] rounded-xl border border-[#333] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="text-[10px] text-[#606060] uppercase tracking-widest mb-3 font-medium">Equalizer</div>
       <EqualizerPanel
         initialGains={eqGains}
         onBandChange={setEQBand}
@@ -352,27 +363,61 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     </div>
   ) : null
 
+  // Audio bar heights for the "now playing" animation
+  const audioBars = [35, 70, 50, 85, 45, 65, 40]
+
   return (
     <div className="flex-1 flex flex-col bg-[#262626] overflow-hidden">
       {/* Header */}
-      <div className="px-6 pt-5 pb-3 border-b border-[#404040]">
-        <div className="text-[10px] text-[#909090] uppercase tracking-widest mb-1">Now Playing</div>
-        {channel ? (
-          <>
-            <div className="text-xl font-bold text-[#f0f0f0] truncate">{channel.name}</div>
-            <div className="text-sm text-[#a0a0a0] mt-0.5">{channel.location}</div>
-          </>
-        ) : (
-          <div className="text-[#707070] text-sm">채널을 선택하세요</div>
-        )}
+      <div className="px-6 pt-5 pb-4 border-b border-[#383838] flex-shrink-0">
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[10px] text-[#606060] uppercase tracking-widest font-medium">Now Playing</span>
+              {isPlaying && (
+                <span className="flex items-center gap-1.5 text-[9px] text-green-400 font-bold uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  Live
+                </span>
+              )}
+            </div>
+            {channel ? (
+              <>
+                <div className="text-xl font-bold text-[#f0f0f0] truncate leading-tight">{channel.name}</div>
+                <div className="text-sm text-[#707070] mt-1">{channel.location}</div>
+              </>
+            ) : (
+              <div className="text-[#555] text-sm">채널을 선택하세요</div>
+            )}
+          </div>
+          {/* Audio level bars — CSS-only animation */}
+          {isPlaying && (
+            <div className="flex items-end gap-[3px] h-6 mt-1 ml-4 flex-shrink-0">
+              {audioBars.map((h, i) => (
+                <div
+                  key={i}
+                  className="w-[3px] rounded-full bg-green-500/60 origin-bottom"
+                  style={{
+                    height: `${h}%`,
+                    animation: `audio-bar 0.9s ease-in-out infinite`,
+                    animationDelay: `${i * 110}ms`,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 gap-4 overflow-y-auto py-4">
         {!channel ? (
-          <div className="text-center text-[#555]">
-            <div className="text-4xl mb-2">📻</div>
-            <p className="text-sm">사이드바에서 채널을 선택하세요</p>
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full bg-[#2a2a2a] border border-[#383838] flex items-center justify-center mx-auto mb-4">
+              <Radio size={26} className="text-[#484848]" />
+            </div>
+            <p className="text-[#555] text-sm font-medium">No channel selected</p>
+            <p className="text-[#404040] text-xs mt-1">Choose a station from the sidebar</p>
           </div>
         ) : isIframe && channel.iframeUrl ? (
           /* Pure user-added iframe channel */
@@ -390,17 +435,22 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
           <>
             {/* Loading states */}
             {(loadState === 'resolving' || loadState === 'loading') && (
-              <div className="text-xs text-[#909090] animate-pulse">
-                {loadState === 'resolving' ? '스트림 URL 해석 중...' : '스트림 연결 중...'}
+              <div className="flex flex-col items-center gap-3">
+                <div className="spinner" />
+                <span className="text-xs text-[#707070]">
+                  {loadState === 'resolving' ? 'Resolving stream…' : 'Connecting…'}
+                </span>
               </div>
             )}
 
             {/* Error — no iframe fallback */}
             {loadState === 'error-fallback' && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-red-900/30 border border-red-700/50 rounded text-xs text-red-300 w-full">
-                <WifiOff size={12} />
-                스트림 연결 실패
-                {errorMsg && <span className="text-red-400 ml-1">: {errorMsg}</span>}
+              <div className="flex items-start gap-3 px-4 py-3 bg-red-500/[0.07] border border-red-500/20 rounded-xl text-sm text-red-300 w-full">
+                <WifiOff size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold text-red-300">Connection failed</div>
+                  {errorMsg && <div className="text-xs text-red-400/70 mt-0.5 font-mono">{errorMsg}</div>}
+                </div>
               </div>
             )}
 
@@ -416,7 +466,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
         )}
 
         {channel && (
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-2 w-full">
             <TranscribeButton
               status={transcribeStatus}
               isActive={isTranscribing}
@@ -426,6 +476,27 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
               onTranslateClick={handleTranslateToggle}
             />
             <StatusBadge status={transcribeStatus} errorMsg={errorMsg} />
+            {isTranscribing && (
+              <div className="w-full max-w-xs px-3 py-2 bg-[#1e1e1e] rounded-xl border border-[#333] mt-1">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-[#606060] uppercase tracking-widest font-medium">Sync Delay</span>
+                  <span className="text-[11px] text-[#909090] font-mono">{syncDelay.toFixed(1)}s</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={5}
+                  step={0.1}
+                  value={syncDelay}
+                  onChange={e => handleSyncDelayChange(parseFloat(e.target.value))}
+                  className="w-full h-1 appearance-none bg-[#404040] rounded-full outline-none cursor-pointer accent-green-500"
+                />
+                <div className="flex justify-between mt-1">
+                  <span className="text-[9px] text-[#484848]">0s</span>
+                  <span className="text-[9px] text-[#484848]">5s</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

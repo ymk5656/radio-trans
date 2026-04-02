@@ -25,7 +25,10 @@ export function loadChannels(): Channel[] {
     }
     const raw = localStorage.getItem(CHANNELS_KEY)
     if (!raw) return DEFAULT_CHANNELS
-    return JSON.parse(raw) as Channel[]
+    const parsed = JSON.parse(raw) as Channel[]
+    // If somehow an empty array was persisted, fall back to defaults
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_CHANNELS
+    return parsed
   } catch {
     return DEFAULT_CHANNELS
   }
@@ -71,6 +74,22 @@ export function loadEQGains(): number[] {
 export function saveEQGains(gains: number[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(EQ_KEY, JSON.stringify(gains))
+}
+
+// ── Playback delay persistence ────────────────────────────────────
+const DELAY_KEY = 'radio-trans:playback_delay'
+
+export function getPlaybackDelay(): number {
+  if (typeof window === 'undefined') return 2.8
+  const raw = localStorage.getItem(DELAY_KEY)
+  if (raw === null) return 2.8
+  const val = parseFloat(raw)
+  return isNaN(val) ? 2.8 : Math.max(0, Math.min(5, val))
+}
+
+export function savePlaybackDelay(seconds: number): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(DELAY_KEY, String(Math.max(0, Math.min(5, seconds))))
 }
 
 export function exportTranscriptsAsTxt(entries: TranscriptEntry[]): void {

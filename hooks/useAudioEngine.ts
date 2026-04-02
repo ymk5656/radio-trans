@@ -25,6 +25,8 @@ export interface AudioEngine {
   setVolume: (vol: number) => void
   setEQBand: (bandIndex: number, gainDb: number) => void
   resetEQ: () => void
+  /** Set speaker output delay in seconds (0 = no delay). Recording path is unaffected. */
+  setDelay: (seconds: number) => void
   cleanup: () => void
 }
 
@@ -36,6 +38,7 @@ export function useAudioEngine(): AudioEngine {
   const eqNodesRef = useRef<BiquadFilterNode[] | null>(null)
   const destRef = useRef<MediaStreamAudioDestinationNode | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
+  const delayNodeRef = useRef<DelayNode | null>(null)
 
   /**
    * Prime the AudioContext on any user gesture (click/keydown).
@@ -102,7 +105,13 @@ export function useAudioEngine(): AudioEngine {
       eqNodes[i].connect(eqNodes[i + 1])
     }
     eqNodes[eqNodes.length - 1].connect(analyser)
-    analyser.connect(ctx.destination)
+    // DelayNode inserted between analyser and speakers (recording path is unaffected)
+    const delayNode = ctx.createDelay(5.0)
+    delayNode.delayTime.value = 0  // default: no delay
+    delayNodeRef.current = delayNode
+
+    analyser.connect(delayNode)
+    delayNode.connect(ctx.destination)
     gain.connect(dest)
   }, [])
 
@@ -125,6 +134,12 @@ export function useAudioEngine(): AudioEngine {
     }
   }, [])
 
+  const setDelay = useCallback((seconds: number) => {
+    if (delayNodeRef.current) {
+      delayNodeRef.current.delayTime.value = Math.max(0, Math.min(5, seconds))
+    }
+  }, [])
+
   const resetEQ = useCallback(() => {
     const nodes = eqNodesRef.current
     if (nodes) {
@@ -137,6 +152,7 @@ export function useAudioEngine(): AudioEngine {
     gainRef.current?.disconnect()
     eqNodesRef.current?.forEach(n => n.disconnect())
     analyserRef.current?.disconnect()
+    delayNodeRef.current?.disconnect()
     destRef.current?.disconnect()
     ctxRef.current?.close()
 
@@ -144,6 +160,7 @@ export function useAudioEngine(): AudioEngine {
     gainRef.current = null
     eqNodesRef.current = null
     analyserRef.current = null
+    delayNodeRef.current = null
     destRef.current = null
     mediaStreamRef.current = null
     ctxRef.current = null
@@ -158,6 +175,7 @@ export function useAudioEngine(): AudioEngine {
     setVolume,
     setEQBand,
     resetEQ,
+    setDelay,
     cleanup,
   }
 }
