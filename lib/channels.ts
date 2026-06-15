@@ -188,6 +188,53 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     streamUrl: 'https://media-ice.musicradio.com/JazzFMMP3',
     language: 'en',
   },
+  {
+    id: 'cadena-ser',
+    group: 'Europe',
+    name: 'Cadena SER',
+    location: 'Madrid, Spain',
+    mode: 'stream',
+    streamUrl: 'https://playerservices.streamtheworld.com/api/livestream-redirect/CADENASER.mp3',
+    language: 'es',
+  },
+  // Asia
+  {
+    id: 'cnr-voice',
+    group: 'Asia',
+    name: 'CNR 中国之声 (Voice of China)',
+    location: 'Beijing, China',
+    mode: 'stream',
+    streamUrl: 'https://ngcdn001.cnr.cn/live/zgzs/index.m3u8',
+    language: 'zh',
+  },
+  {
+    id: 'nhk-r1',
+    group: 'Asia',
+    name: 'NHK ラジオ第1',
+    location: 'Tokyo, Japan',
+    mode: 'stream',
+    streamUrl: 'https://masterpl.hls.nhkworld.jp/hls/r1/live/master.m3u8',
+    language: 'ja',
+  },
+  // Latin America
+  {
+    id: 'wradio-mx',
+    group: 'Latin America',
+    name: 'W Radio México',
+    location: 'Mexico City, Mexico',
+    mode: 'stream',
+    streamUrl: 'https://playerservices.streamtheworld.com/api/livestream-redirect/WRADIOAAC.aac',
+    language: 'es',
+  },
+  {
+    id: 'caracol-co',
+    group: 'Latin America',
+    name: 'Caracol Radio',
+    location: 'Bogotá, Colombia',
+    mode: 'stream',
+    streamUrl: 'https://playerservices.streamtheworld.com/api/livestream-redirect/CARACOL_RADIOAAC.aac',
+    language: 'es',
+  },
   // Music / Internet
   {
     id: 'soma-groove',
