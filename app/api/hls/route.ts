@@ -24,6 +24,8 @@ const ALLOWED_HOSTS = [
   'streamguys1.com',
   'wnyc.org',
   'wfmu.org',
+  'cnr.cn',                   // CNR 中国之声 (Voice of China) — HLS
+  'nhkworld.jp',              // NHK ラジオ第1 — HLS (master + media-tyo variant host)
 ]
 
 function isAllowed(url: string): boolean {
@@ -136,7 +138,13 @@ export async function GET(req: NextRequest) {
         },
       })
     } else {
-      return new Response(body.buffer as ArrayBuffer, {
+      // NOTE: do NOT pass `body.buffer` — Buffer.concat draws small payloads from
+      // Node's shared 8KB pool, so `.buffer` is the whole pool and the real bytes
+      // start at `body.byteOffset`. That corrupts small segments (e.g. fMP4
+      // EXT-X-MAP init.mp4 ~641B → returned as 8192B of garbage), which makes
+      // hls.js fail to parse every fragment ("Found no media"). Copy exact bytes.
+      const exact = new Uint8Array(body)
+      return new Response(exact, {
         status,
         headers: {
           'Content-Type': contentType || 'video/mp2t',
