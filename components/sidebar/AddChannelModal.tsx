@@ -1,6 +1,7 @@
 'use client'
-import { useState, useMemo } from 'react'
-import { X, Plus, Search, Check, ChevronRight } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { X, Plus, Search, Check } from 'lucide-react'
 import { Channel, ChannelMode, ALL_RECOMMENDED_CHANNELS } from '@/lib/channels'
 
 interface AddChannelModalProps {
@@ -11,9 +12,12 @@ interface AddChannelModalProps {
 
 type Tab = 'recommended' | 'custom'
 
-const GROUP_ORDER = ['Favorites', 'Korean FM', 'BBC', 'US Public Radio', 'Europe', 'Music']
+const GROUP_ORDER = ['Favorites', 'Korean FM', 'BBC', 'US Public Radio', 'Europe', 'Asia', 'Latin America', 'Music']
 
 export function AddChannelModal({ existingIds, onClose, onAdd }: AddChannelModalProps) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   const [tab, setTab] = useState<Tab>('recommended')
   const [search, setSearch] = useState('')
   const [added, setAdded] = useState<Set<string>>(new Set())
@@ -82,7 +86,9 @@ export function AddChannelModal({ existingIds, onClose, onAdd }: AddChannelModal
   const inputCls =
     'w-full bg-[#323232] border border-[#505050] rounded px-2 py-1.5 text-sm text-[#f0f0f0] placeholder:text-[#707070] focus:outline-none focus:border-green-500/70'
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
       <div className="bg-[#262626] border border-[#404040] rounded-xl w-[460px] max-h-[80vh] shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
@@ -266,7 +272,8 @@ export function AddChannelModal({ existingIds, onClose, onAdd }: AddChannelModal
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

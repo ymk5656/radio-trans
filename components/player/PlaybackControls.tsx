@@ -41,26 +41,36 @@ export function PlaybackControls({
   }
 
   const btnCls =
-    'p-1.5 rounded text-[#b0b0b0] hover:text-[#f0f0f0] hover:bg-[#323232] transition-colors'
+    'p-2 rounded-lg text-[#909090] hover:text-[#f0f0f0] hover:bg-white/[0.06] transition-all duration-150 active:scale-90'
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <button className={btnCls} onClick={onPrev} title="Previous">
-        <SkipBack size={16} />
+        <SkipBack size={15} />
       </button>
       <button
-        className="p-2 rounded-full bg-green-500 hover:bg-green-400 text-black transition-colors"
+        className={`
+          p-3 rounded-full bg-green-500 hover:bg-green-400 text-black
+          transition-all duration-200 active:scale-90
+          ${isPlaying
+            ? 'shadow-[0_0_24px_rgba(34,197,94,0.45),0_4px_12px_rgba(0,0,0,0.4)]'
+            : 'shadow-[0_4px_14px_rgba(0,0,0,0.5)]'
+          }
+        `}
         onClick={onPlayPause}
         title={isPlaying ? 'Pause' : 'Play'}
       >
-        {isPlaying ? <Pause size={16} fill="black" /> : <Play size={16} fill="black" />}
+        {isPlaying ? <Pause size={17} fill="black" /> : <Play size={17} fill="black" />}
       </button>
       <button className={btnCls} onClick={onNext} title="Next">
-        <SkipForward size={16} />
+        <SkipForward size={15} />
       </button>
 
-      <div className="flex items-center gap-2 ml-2">
-        <button className={btnCls} onClick={handleMuteToggle}>
+      <div className="flex items-center gap-2 ml-1">
+        <button
+          className="p-1.5 text-[#909090] hover:text-[#f0f0f0] transition-colors active:scale-90"
+          onClick={handleMuteToggle}
+        >
           {isMuted || volume === 0 ? (
             <VolumeX size={14} />
           ) : (
@@ -78,7 +88,7 @@ export function PlaybackControls({
             if (isMuted && v > 0) setIsMuted(false)
             onVolumeChange(v)
           }}
-          className="w-20 h-1 accent-green-500"
+          className="w-20"
         />
       </div>
     </div>

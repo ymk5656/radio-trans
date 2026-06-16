@@ -5,56 +5,58 @@ interface TranscriptEntryProps {
   entry: TEntry
   isLatest: boolean
   fontSize: number
-  searchTerm: string
-}
-
-function highlight(text: string, term: string): React.ReactNode {
-  if (!term.trim()) return text
-  const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-  const parts = text.split(regex)
-  return parts.map((part, i) =>
-    regex.test(part) ? (
-      <mark key={i} className="bg-yellow-300 text-black rounded-sm px-0.5">
-        {part}
-      </mark>
-    ) : (
-      part
-    )
-  )
+  // Station name is only shown when it differs from the previous entry, so it
+  // appears once at the top of each station's run instead of on every line.
+  showChannel: boolean
 }
 
 export function TranscriptEntryRow({
   entry,
   isLatest,
   fontSize,
-  searchTerm,
+  showChannel,
 }: TranscriptEntryProps) {
   return (
     <div
-      className={`px-3 py-2 border-b border-[#363636] transition-colors hover:bg-[#2e2e2e] ${
-        isLatest ? 'border-l-2 border-l-green-500 bg-green-950/20' : ''
-      }`}
+      className={`
+        px-3 py-2.5 border-b border-[#2e2e2e]
+        transition-colors duration-150 hover:bg-white/[0.02]
+        ${isLatest
+          ? 'border-l-2 border-l-green-500 bg-green-500/[0.05] entry-appear'
+          : 'border-l-2 border-l-transparent'
+        }
+      `}
     >
-      {/* Original transcript line */}
-      <div>
-        <span className="text-[#808080] font-mono" style={{ fontSize: fontSize * 0.85 }}>
-          [{entry.timestamp}]{' '}
+      {/* Header: timestamp + (channel only when it changes) */}
+      <div className="flex items-baseline gap-1.5 mb-0.5">
+        <span
+          className="text-[#4a4a4a] font-mono tabular-nums flex-shrink-0"
+          style={{ fontSize: fontSize * 0.78 }}
+        >
+          {entry.timestamp}
         </span>
-        <span className="text-green-400 font-semibold" style={{ fontSize: fontSize * 0.85 }}>
-          {entry.channelName.split(' ')[0]}:{' '}
-        </span>
-        <span className="text-[#e8e8e8]" style={{ fontSize }}>
-          {highlight(entry.text, searchTerm)}
-        </span>
+        {showChannel && (
+          <span
+            className="text-green-500/80 font-semibold flex-shrink-0"
+            style={{ fontSize: fontSize * 0.82 }}
+          >
+            {entry.channelName.split(' ')[0]}
+          </span>
+        )}
       </div>
 
-      {/* Korean translation (shown when present) */}
+      {/* Transcript text */}
+      <span className="text-[#ddd] leading-relaxed" style={{ fontSize }}>
+        {entry.text}
+      </span>
+
+      {/* Korean translation */}
       {entry.translation && (
         <div
-          className="mt-1 pl-2 border-l-2 border-blue-500/40 text-[#88aacc] italic"
+          className="mt-1.5 pl-2.5 border-l border-blue-500/30 text-blue-300/70 italic leading-relaxed"
           style={{ fontSize: fontSize * 0.92 }}
         >
-          {highlight(entry.translation, searchTerm)}
+          {entry.translation}
         </div>
       )}
     </div>

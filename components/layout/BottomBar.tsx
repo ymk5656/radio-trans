@@ -25,10 +25,10 @@ export function BottomBar({
   onSave,
 }: BottomBarProps) {
   const iconBtn =
-    'p-1.5 rounded text-[#b0b0b0] hover:text-[#f0f0f0] hover:bg-[#323232] transition-colors'
+    'p-1.5 rounded-lg text-[#707070] hover:text-[#e0e0e0] hover:bg-white/[0.06] transition-all duration-150 active:scale-90'
 
   return (
-    <div className="flex items-center justify-between h-9 px-3 bg-[#1c1c1c] border-t border-[#404040] flex-shrink-0">
+    <div className="flex items-center justify-between h-9 px-3 bg-[#181818] border-t border-[#333] flex-shrink-0">
       <div className="flex items-center gap-1">
         <button className={iconBtn} title="Save" onClick={onSave}>
           <Save size={14} />
@@ -65,7 +65,7 @@ export function BottomBar({
         </button>
         <button
           onClick={() => exportTranscriptsAsTxt(transcripts)}
-          className="ml-1 px-3 py-1 text-xs bg-[#323232] hover:bg-[#404040] text-[#f0f0f0] rounded border border-[#505050] transition-colors"
+          className="ml-1 px-3 py-1 text-xs bg-white/[0.06] hover:bg-white/[0.1] text-[#d0d0d0] rounded-lg border border-white/[0.08] transition-all duration-150 active:scale-95"
           title="Export as TXT"
         >
           Export as TXT

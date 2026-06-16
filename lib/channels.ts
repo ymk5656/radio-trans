@@ -235,6 +235,15 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     streamUrl: 'https://playerservices.streamtheworld.com/api/livestream-redirect/CARACOL_RADIOAAC.aac',
     language: 'es',
   },
+  {
+    id: 'radio-nacional-ar',
+    group: 'Latin America',
+    name: 'Radio Nacional (LRA1 AM 870)',
+    location: 'Buenos Aires, Argentina',
+    mode: 'stream',
+    streamUrl: 'https://sa.mp3.icecast.magma.edge-access.net/sc_rad1',
+    language: 'es',
+  },
   // Music / Internet
   {
     id: 'soma-groove',

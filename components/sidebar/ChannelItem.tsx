@@ -35,12 +35,12 @@ export function ChannelItem({ channel, isActive, editMode, onSelect, onDelete }:
       onClick={() => !editMode && onSelect(channel)}
       className={`
         flex items-center gap-2 px-2 py-1.5 rounded mx-1
-        transition-colors group
+        transition-all duration-150 group
         ${editMode ? 'cursor-default' : 'cursor-pointer'}
         ${
           isActive && !editMode
-            ? 'border-l-2 border-green-500 bg-green-950/40 pl-1.5'
-            : 'border-l-2 border-transparent hover:bg-[#323232]'
+            ? 'border-l-2 border-green-500 bg-green-500/[0.08] pl-1.5 shadow-[inset_0_0_0_1px_rgba(34,197,94,0.1)]'
+            : 'border-l-2 border-transparent hover:bg-white/[0.04]'
         }
       `}
     >
@@ -71,19 +71,19 @@ export function ChannelItem({ channel, isActive, editMode, onSelect, onDelete }:
       {editMode ? (
         <button
           onClick={e => { e.stopPropagation(); onDelete(channel) }}
-          className="flex-shrink-0 w-5 h-5 rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 flex items-center justify-center transition-colors"
+          className="flex-shrink-0 w-5 h-5 rounded-full bg-red-500/15 hover:bg-red-500/35 text-red-400/80 hover:text-red-300 flex items-center justify-center transition-all duration-150 active:scale-90"
           title="삭제"
         >
-          <X size={11} />
+          <X size={10} />
         </button>
       ) : (
         <button
           {...attributes}
           {...listeners}
-          className="text-[#606060] hover:text-[#b0b0b0] cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+          className="text-[#505050] hover:text-[#909090] cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-all duration-150"
           onClick={e => e.stopPropagation()}
         >
-          <GripVertical size={14} />
+          <GripVertical size={13} />
         </button>
       )}
     </div>

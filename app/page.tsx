@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Channel } from '@/lib/channels'
 import {
   TranscriptEntry,
@@ -22,6 +22,16 @@ export default function Home() {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([])
   const [skippedCount, setSkippedCount] = useState(0)
   const [transcribeStatus, setTranscribeStatus] = useState<TranscribeStatus>('idle')
+  // Translation toggle lifted here so the 번역 button lives above the transcript
+  // output (TranscriptPanel) while the transcription loop (Player) still reads it.
+  const [isTranslating, setIsTranslating] = useState(false)
+
+  // 동조 (sync-now) bridge: Player registers its handler here so the button,
+  // which now lives atop the transcript panel, can trigger it.
+  const syncNowRef = useRef<(() => void) | null>(null)
+  // Stop-transcription bridge: the back-to-equalizer button stops the session
+  // so new entries stop arriving (otherwise they auto-switch back to transcript).
+  const stopTranscribeRef = useRef<(() => void) | null>(null)
 
   // Mobile state
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -84,6 +94,21 @@ export default function Home() {
     window.location.reload()
   }, [])
 
+  const handleTranslateToggle = useCallback(() => {
+    setIsTranslating(prev => !prev)
+  }, [])
+
+  const handleSyncNow = useCallback(() => {
+    syncNowRef.current?.()
+  }, [])
+
+  const handleBackToPlayer = useCallback(() => {
+    // Stop transcription first; otherwise a freshly arriving entry would flip
+    // mobilePanel back to 'transcript' and bounce the user off the equalizer.
+    stopTranscribeRef.current?.()
+    setMobilePanel('player')
+  }, [])
+
   return (
     <div className="flex flex-col h-screen bg-[#1c1c1c] overflow-hidden">
       <TitleBar onMenuClick={() => setSidebarOpen(prev => !prev)} />
@@ -124,6 +149,9 @@ export default function Home() {
             onTranscriptEntry={handleTranscriptEntry}
             onSkipped={handleSkipped}
             onStatusChange={setTranscribeStatus}
+            isTranslating={isTranslating}
+            syncNowRef={syncNowRef}
+            stopTranscribeRef={stopTranscribeRef}
           />
         </div>
 
@@ -132,6 +160,11 @@ export default function Home() {
           <TranscriptPanel
             entries={transcripts}
             status={transcribeStatus}
+            isTranslating={isTranslating}
+            onTranslateToggle={handleTranslateToggle}
+            onSyncNow={handleSyncNow}
+            syncActive={transcribeStatus !== 'idle'}
+            onBackToPlayer={handleBackToPlayer}
           />
         </div>
       </div>

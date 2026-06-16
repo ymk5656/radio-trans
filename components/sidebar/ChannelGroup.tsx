@@ -9,18 +9,18 @@ interface ChannelGroupProps {
 
 export function ChannelGroupHeader({ name, editMode, onToggleEdit }: ChannelGroupProps) {
   return (
-    <div className="px-3 pt-3 pb-1">
+    <div className="px-3 pt-3.5 pb-1">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-[#909090] uppercase tracking-widest font-semibold">
+        <span className="text-[9px] text-[#585858] uppercase tracking-[0.12em] font-semibold">
           {name}
         </span>
         {onToggleEdit && (
           <button
             onClick={onToggleEdit}
-            className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded transition-colors ${
+            className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md transition-all duration-150 active:scale-90 ${
               editMode
                 ? 'text-green-400 bg-green-500/15 hover:bg-green-500/25'
-                : 'text-[#707070] hover:text-[#b0b0b0]'
+                : 'text-[#585858] hover:text-[#a0a0a0]'
             }`}
           >
             {editMode ? <Check size={9} /> : <Pencil size={9} />}
@@ -28,7 +28,7 @@ export function ChannelGroupHeader({ name, editMode, onToggleEdit }: ChannelGrou
           </button>
         )}
       </div>
-      <div className="mt-1 border-b border-[#404040]" />
+      <div className="mt-1.5 border-b border-[#333]" />
     </div>
   )
 }

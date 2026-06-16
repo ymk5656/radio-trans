@@ -19,6 +19,8 @@ const ALLOWED_HOSTS = [
   'kqed.org',                 // KQED San Francisco
   'srg-ssr.ch',               // Swiss Radio (Radio Swiss Jazz)
   'ebsonair.ebs.co.kr',       // EBS FM (static m3u8)
+  'streamtheworld.com',       // Cadena SER (ES), W Radio (MX), Caracol Radio (CO)
+  'edge-access.net',          // Radio Nacional Argentina (LRA1 AM 870)
 ]
 
 /**
@@ -93,14 +95,25 @@ export async function GET(req: NextRequest) {
 
   const contentType = upstream.headers['content-type'] ?? 'audio/mpeg'
 
-  // Pipe the Node.js readable stream through a Web ReadableStream
+  // Pipe the Node.js readable stream through a Web ReadableStream WITH backpressure.
+  // The browser consumes a live radio stream at realtime (1×); without pausing the
+  // upstream socket when the consumer falls behind, chunks pile up unboundedly in the
+  // controller queue (server memory) and the browser's forward buffer — which after a
+  // few minutes leads to a stall. desiredSize ≤ 0 → pause reading; pull() → resume.
   const stream = new ReadableStream({
     start(controller) {
       upstream.on('data', (chunk: Buffer) => {
         controller.enqueue(new Uint8Array(chunk))
+        if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+          upstream.pause()
+        }
       })
       upstream.on('end', () => controller.close())
       upstream.on('error', (err: Error) => controller.error(err))
+    },
+    pull() {
+      // Consumer is ready for more — resume reading from upstream.
+      upstream.resume()
     },
     cancel() {
       // Client disconnected — destroy upstream connection

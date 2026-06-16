@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, type MutableRefObject } from 'react'
 import { Channel } from '@/lib/channels'
 import { useAudioEngine } from '@/hooks/useAudioEngine'
 import { useTranscription, TranscribeStatus } from '@/hooks/useTranscription'
@@ -16,21 +16,39 @@ interface PlayerProps {
   onTranscriptEntry: (entry: TranscriptEntry) => void
   onSkipped: () => void
   onStatusChange?: (status: TranscribeStatus) => void
+  // Translate toggle is owned by Home (button lives above the transcript output).
+  isTranslating: boolean
+  // Home bridges the 동조 button (now atop the transcript) to handleSyncNow here.
+  syncNowRef?: MutableRefObject<(() => void) | null>
+  // Home bridges the back-to-equalizer button to stop transcription here.
+  stopTranscribeRef?: MutableRefObject<(() => void) | null>
 }
 
 type LoadState = 'idle' | 'resolving' | 'loading' | 'playing' | 'error-fallback'
 
-export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }: PlayerProps) {
+export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, isTranslating, syncNowRef, stopTranscribeRef }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hlsRef = useRef<any>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  // User intent to have audio playing. Stays true across unexpected stalls/pauses
+  // (so the watchdog can auto-recover); only false on manual pause / channel change / hard error.
+  const [playIntent, setPlayIntent] = useState(false)
   const stallLastTimeRef = useRef<number>(-1)
   const stallCountRef = useRef<number>(0)
   const [volume, setVolume] = useState(1)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [syncDelay, setSyncDelay] = useState(() => getPlaybackDelay())
-  const [isTranslating, setIsTranslating] = useState(false)
+  // ── Auto-sync (동조) ──────────────────────────────────────────────────────
+  // Keeps speaker audio aligned with the subtitle by delaying audio by the
+  // measured transcription latency. autoSync drives setDelay automatically;
+  // the 동조 button applies the latest measurement on demand.
+  const [autoSync, setAutoSync] = useState(true)
+  const [measuredLatency, setMeasuredLatency] = useState(0)
+  const autoSyncRef = useRef(true)
+  const isTranscribingRef = useRef(false)
+  const latencyEmaRef = useRef(0)        // EMA-smoothed latency (seconds)
+  const lastAppliedDelayRef = useRef(0)  // last value pushed to setDelay
   const [transcribeStatus, setTranscribeStatus] = useState<TranscribeStatus>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [loadState, setLoadState] = useState<LoadState>('idle')
@@ -62,6 +80,24 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     saveEQGains(gains)
   }, [])
 
+  // Per-chunk end-to-end latency report → drives auto-sync. We EMA-smooth the
+  // raw measurement and, when auto-sync is on, push it to the speaker DelayNode
+  // so the audio lands together with its subtitle. Threshold avoids jitter.
+  const handleLatency = useCallback((seconds: number) => {
+    const prev = latencyEmaRef.current
+    const ema = prev === 0 ? seconds : prev * 0.7 + seconds * 0.3
+    latencyEmaRef.current = ema
+    setMeasuredLatency(ema)
+    if (autoSyncRef.current && isTranscribingRef.current) {
+      const target = Math.min(5, Math.max(0, ema))
+      if (Math.abs(target - lastAppliedDelayRef.current) > 0.25) {
+        lastAppliedDelayRef.current = target
+        setDelay(target)
+        setSyncDelay(target)
+      }
+    }
+  }, [setDelay])
+
   const { startTranscription, stopTranscription, status } = useTranscription({
     mediaStreamRef,
     analyserRef,
@@ -71,10 +107,13 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     onEntry: onTranscriptEntry,
     onSkipped,
     isTranslatingRef,
+    onLatency: handleLatency,
   })
 
-  // Keep ref in sync with state — runs after every render where isTranslating changed
+  // Keep refs in sync with state — read by the async transcription/latency loops
   useEffect(() => { isTranslatingRef.current = isTranslating }, [isTranslating])
+  useEffect(() => { autoSyncRef.current = autoSync }, [autoSync])
+  useEffect(() => { isTranscribingRef.current = isTranscribing }, [isTranscribing])
 
   useEffect(() => {
     setTranscribeStatus(status)
@@ -163,11 +202,13 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
         await audio.play()
         if (activeSetupRef.current !== setupId) return
         setIsPlaying(true)
+        setPlayIntent(true)
         setLoadState('playing')
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return
         if (activeSetupRef.current !== setupId) return
         setIsPlaying(false)
+        setPlayIntent(false)
         const msg = err instanceof Error ? err.message : 'Playback failed'
         setErrorMsg(msg)
         setLoadState('error-fallback')
@@ -254,6 +295,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     audio.pause()
     audio.src = ''
     setIsPlaying(false)
+    setPlayIntent(false)
     setLoadState('idle')
     setErrorMsg('')
     stallLastTimeRef.current = -1
@@ -270,31 +312,52 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
     if (audioRef.current) audioRef.current.volume = volume
   }, [volume, setGainVolume])
 
-  // Stall watchdog: detects frozen currentTime and attempts recovery
+  // Stall/stop watchdog: while the user intends playback, detect an unexpected
+  // pause/stop OR a frozen currentTime and auto-recover. Crucially this keys off
+  // playIntent (not isPlaying), so it stays alive even after the element pauses —
+  // that's exactly when recovery is needed and no manual ▶ is required.
   useEffect(() => {
-    if (!isPlaying) {
+    if (!playIntent) {
       stallLastTimeRef.current = -1
       stallCountRef.current = 0
       return
     }
     const CHECK_MS = 5000
     const STALL_STRIKES = 2  // 2 × 5s = 10s before recovery attempt
+
+    const recover = () => {
+      const audio = audioRef.current
+      if (!audio) return
+      if (hlsRef.current) {
+        hlsRef.current.startLoad()
+        audio.play().catch(() => {})
+      } else if (audio.src) {
+        const src = audio.src
+        audio.load()
+        audio.src = src
+        audio.play().catch(() => {})
+      }
+    }
+
     const id = setInterval(() => {
       const audio = audioRef.current
-      if (!audio || audio.paused) return
+      if (!audio) return
+
+      // Unexpected pause/stop (stall, ended, or upstream reset) while we still
+      // want playback → pull from the live edge again.
+      if (audio.paused) {
+        stallCountRef.current = 0
+        recover()
+        return
+      }
+
+      // Not paused but currentTime frozen → buffer stall; nudge the loader.
       const ct = audio.currentTime
       if (ct > 0 && ct === stallLastTimeRef.current) {
         stallCountRef.current++
         if (stallCountRef.current >= STALL_STRIKES) {
           stallCountRef.current = 0
-          if (hlsRef.current) {
-            hlsRef.current.startLoad()
-          } else if (audio.src) {
-            const src = audio.src
-            audio.load()
-            audio.src = src
-            audio.play().catch(() => {})
-          }
+          recover()
         }
       } else {
         stallCountRef.current = 0
@@ -302,7 +365,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
       }
     }, CHECK_MS)
     return () => clearInterval(id)
-  }, [isPlaying])
+  }, [playIntent])
 
   const handlePlayPause = useCallback(async () => {
     const audio = audioRef.current
@@ -313,13 +376,17 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
       try {
         await audio.play()
         setIsPlaying(true)
+        setPlayIntent(true)
         setLoadState('playing')
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return
         setIsPlaying(false)
+        setPlayIntent(false)
         setErrorMsg(err instanceof Error ? err.message : 'Playback failed')
       }
     } else {
+      // Manual pause — clear intent so the watchdog doesn't fight the user.
+      setPlayIntent(false)
       audio.pause()
       setIsPlaying(false)
     }
@@ -331,21 +398,57 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
       setDelay(0)
       setIsTranscribing(false)
     } else {
+      // Fresh sync session — drop stale latency estimate, start from saved delay
+      latencyEmaRef.current = 0
+      lastAppliedDelayRef.current = syncDelay
       startTranscription()
       setDelay(syncDelay)
       setIsTranscribing(true)
     }
   }, [isTranscribing, startTranscription, stopTranscription, setDelay, syncDelay])
 
+  // Manual slider drag — user takes over, so disable auto-sync.
   const handleSyncDelayChange = useCallback((val: number) => {
+    setAutoSync(false)
     setSyncDelay(val)
     savePlaybackDelay(val)
+    lastAppliedDelayRef.current = val
     if (isTranscribing) setDelay(val)
   }, [isTranscribing, setDelay])
 
-  const handleTranslateToggle = useCallback(() => {
-    setIsTranslating(prev => !prev)
-  }, [])
+  // 동조 button — snap the speaker delay to the latest measured latency now.
+  const handleSyncNow = useCallback(() => {
+    const target = Math.min(5, Math.max(0, latencyEmaRef.current))
+    lastAppliedDelayRef.current = target
+    setSyncDelay(target)
+    savePlaybackDelay(target)
+    if (isTranscribing) setDelay(target)
+  }, [isTranscribing, setDelay])
+
+  // Expose 동조 to Home so the button can live atop the transcript panel.
+  useEffect(() => {
+    if (syncNowRef) syncNowRef.current = handleSyncNow
+    return () => {
+      if (syncNowRef) syncNowRef.current = null
+    }
+  }, [handleSyncNow, syncNowRef])
+
+  // Stop the transcription session (no-op if not transcribing). Bridged to the
+  // back-to-equalizer button so leaving the transcript also ends transcription.
+  const stopTranscribing = useCallback(() => {
+    if (isTranscribing) {
+      stopTranscription()
+      setDelay(0)
+      setIsTranscribing(false)
+    }
+  }, [isTranscribing, stopTranscription, setDelay])
+
+  useEffect(() => {
+    if (stopTranscribeRef) stopTranscribeRef.current = stopTranscribing
+    return () => {
+      if (stopTranscribeRef) stopTranscribeRef.current = null
+    }
+  }, [stopTranscribing, stopTranscribeRef])
 
   // Pure iframe channel (user-added custom type)
   const isIframe = channel?.mode === 'iframe' && !channel.apiResolver && !channel.streamUrl
@@ -470,10 +573,8 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
             <TranscribeButton
               status={transcribeStatus}
               isActive={isTranscribing}
-              isTranslating={isTranslating}
               disabled={transcribeDisabled}
               onClick={handleTranscribeToggle}
-              onTranslateClick={handleTranslateToggle}
             />
             <StatusBadge status={transcribeStatus} errorMsg={errorMsg} />
             {isTranscribing && (
@@ -494,6 +595,25 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange }
                 <div className="flex justify-between mt-1">
                   <span className="text-[9px] text-[#484848]">0s</span>
                   <span className="text-[9px] text-[#484848]">5s</span>
+                </div>
+                {/* 자동 동조 toggle + measured latency (the manual 동조 button now
+                    lives atop the transcript panel). */}
+                <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-[#333]">
+                  <button
+                    onClick={() => setAutoSync(v => !v)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all duration-150 active:scale-90 ${
+                      autoSync
+                        ? 'bg-green-500/20 text-green-300'
+                        : 'text-[#707070] hover:text-[#f0f0f0] hover:bg-white/[0.06]'
+                    }`}
+                    title={autoSync ? '자동 동조 켜짐' : '자동 동조 꺼짐'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${autoSync ? 'bg-green-400 animate-pulse' : 'bg-[#555]'}`} />
+                    자동 동조
+                  </button>
+                  <span className="text-[9px] text-[#606060] font-mono" title="측정된 전사 지연">
+                    ~{measuredLatency.toFixed(1)}s
+                  </span>
                 </div>
               </div>
             )}

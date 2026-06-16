@@ -23,3 +23,11 @@ Thumbs.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+
+# local agent / dev artifacts
+.claude/
+dev.log
+HANDOFF.md
+CLAUDE.md

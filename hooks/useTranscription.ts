@@ -2,10 +2,12 @@
 import { useRef, useCallback, useState } from 'react'
 import { TranscriptEntry } from '@/lib/storage'
 
-const CHUNK_DURATION_MS = 2500
+const CHUNK_DURATION_MS = 3300
 // How many blobs to buffer during Groq slow-downs before dropping the oldest.
-// 4 × 2.5s = 10s of backlog tolerated.
+// 4 × 3.3s = 13.2s of backlog tolerated.
 const MAX_QUEUE = 4
+// Groq free tier: 20 RPM. 3.3s interval ≈ 18.2 RPM — safely under the limit.
+const MIN_REQUEST_INTERVAL_MS = 3300
 
 export type TranscribeStatus =
   | 'idle'
@@ -23,6 +25,8 @@ interface UseTranscriptionOptions {
   onEntry: (entry: TranscriptEntry) => void
   onSkipped: () => void
   isTranslatingRef: React.RefObject<boolean>
+  /** Reports end-to-end latency (seconds) per successful chunk — used for auto-sync. */
+  onLatency?: (seconds: number) => void
 }
 
 export function useTranscription({
@@ -34,17 +38,19 @@ export function useTranscription({
   onEntry,
   onSkipped,
   isTranslatingRef,
+  onLatency,
 }: UseTranscriptionOptions) {
   const [status, setStatus] = useState<TranscribeStatus>('idle')
 
-  const isRunningRef    = useRef(false)
-  const sessionIdRef    = useRef(0)
-  const recorderRef     = useRef<MediaRecorder | null>(null)
-  const vadFramesRef    = useRef<boolean[]>([])
-  const vadTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
-  const abortRef        = useRef<AbortController | null>(null)
-  const blobQueueRef    = useRef<Blob[]>([])
-  const isDrainingRef   = useRef(false)
+  const isRunningRef      = useRef(false)
+  const sessionIdRef      = useRef(0)
+  const recorderRef       = useRef<MediaRecorder | null>(null)
+  const vadFramesRef      = useRef<boolean[]>([])
+  const vadTimerRef       = useRef<ReturnType<typeof setInterval> | null>(null)
+  const abortRef          = useRef<AbortController | null>(null)
+  const blobQueueRef      = useRef<{ blob: Blob; recordedAt: number }[]>([])
+  const isDrainingRef     = useRef(false)
+  const lastRequestAtRef  = useRef<number>(0)   // tracks last Groq call time for throttling
 
   // ── VAD ───────────────────────────────────────────────────────────────────
   const startVADSampling = useCallback(() => {
@@ -151,7 +157,8 @@ export function useTranscription({
         if (hasSpeech) {
           // Drop the oldest if backlog is too deep (Groq outage scenario)
           if (blobQueueRef.current.length >= MAX_QUEUE) blobQueueRef.current.shift()
-          blobQueueRef.current.push(blob)
+          // recordedAt = chunk-end wall-clock; latency is measured against this
+          blobQueueRef.current.push({ blob, recordedAt: Date.now() })
           drainQueue()             // no-op if already draining
         } else {
           setStatus('skipped')
@@ -179,15 +186,26 @@ export function useTranscription({
         isRunningRef.current &&
         mySession === sessionIdRef.current
       ) {
-        const blob = blobQueueRef.current.shift()!
+        // ── Rate throttle: enforce minimum interval to stay under 20 RPM ──
+        const sinceLastMs = Date.now() - lastRequestAtRef.current
+        if (sinceLastMs < MIN_REQUEST_INTERVAL_MS) {
+          await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL_MS - sinceLastMs))
+          if (!isRunningRef.current || mySession !== sessionIdRef.current) break
+        }
+
+        const item = blobQueueRef.current.shift()!
+        const { blob, recordedAt } = item
         setStatus('transcribing')
 
         const controller = new AbortController()
         abortRef.current = controller
+        lastRequestAtRef.current = Date.now()
 
         try {
           const result = await transcribeBlob(blob, controller.signal)
           if (result && isRunningRef.current && mySession === sessionIdRef.current) {
+            // End-to-end latency: chunk-end → subtitle ready. Drives auto-sync.
+            onLatency?.((Date.now() - recordedAt) / 1000)
             const now = new Date()
             const ts = [
               now.getHours().toString().padStart(2, '0'),
@@ -210,8 +228,10 @@ export function useTranscription({
           const retryAfter = (err as { retryAfter?: number }).retryAfter
           if (mySession === sessionIdRef.current) {
             setStatus('error')
+            // Put the blob back at the front so it gets retried (not dropped)
+            blobQueueRef.current.unshift(item)
             // Wait out the rate limit (recording continues unaffected)
-            await new Promise(r => setTimeout(r, (retryAfter ?? 3) * 1000))
+            await new Promise(r => setTimeout(r, (retryAfter ?? 10) * 1000))
             if (mySession === sessionIdRef.current && isRunningRef.current) setStatus('receiving')
           }
         }
@@ -230,6 +250,7 @@ export function useTranscription({
     channelName,
     onEntry,
     onSkipped,
+    onLatency,
   ])
 
   // ── Stop ──────────────────────────────────────────────────────────────────

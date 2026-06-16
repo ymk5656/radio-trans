@@ -80,11 +80,11 @@ export function saveEQGains(gains: number[]): void {
 const DELAY_KEY = 'radio-trans:playback_delay'
 
 export function getPlaybackDelay(): number {
-  if (typeof window === 'undefined') return 2.8
+  if (typeof window === 'undefined') return 3.0
   const raw = localStorage.getItem(DELAY_KEY)
-  if (raw === null) return 2.8
+  if (raw === null) return 3.0
   const val = parseFloat(raw)
-  return isNaN(val) ? 2.8 : Math.max(0, Math.min(5, val))
+  return isNaN(val) ? 3.0 : Math.max(0, Math.min(5, val))
 }
 
 export function savePlaybackDelay(seconds: number): void {

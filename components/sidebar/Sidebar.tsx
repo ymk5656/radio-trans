@@ -64,7 +64,7 @@ export function Sidebar({
   const groups = Array.from(new Set(channels.map(c => c.group)))
 
   return (
-    <div className="w-[220px] flex-shrink-0 bg-[#262626] border-r border-[#404040] flex flex-col overflow-hidden">
+    <div className="w-[220px] flex-shrink-0 bg-[#242424] border-r border-[#383838] flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
         <DndContext
           sensors={sensors}
@@ -101,10 +101,10 @@ export function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="p-2 border-t border-[#404040]">
+      <div className="p-2 border-t border-[#383838]">
         <button
           onClick={() => { setEditMode(false); setShowModal(true) }}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-[#b0b0b0] hover:text-green-400 hover:bg-green-950/20 rounded border border-dashed border-[#505050] hover:border-green-500/50 transition-all"
+          className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-[#707070] hover:text-green-400 hover:bg-green-500/[0.07] rounded-lg border border-dashed border-[#404040] hover:border-green-500/40 transition-all duration-200 active:scale-[0.98]"
         >
           <Plus size={12} />
           Add Channel
