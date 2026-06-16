@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { TranscriptEntry } from '@/lib/storage'
 import { TranscribeStatus } from '@/hooks/useTranscription'
@@ -12,6 +12,9 @@ interface FocusModeProps {
 }
 
 export function FocusMode({ entries, status, onClose }: FocusModeProps) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const isAtBottomRef = useRef(true)
+
   // ESC key to close
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -21,13 +24,25 @@ export function FocusMode({ entries, status, onClose }: FocusModeProps) {
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  const recent = entries.slice(-3)
+  // Auto-follow the latest line, but only while the user is parked near the
+  // bottom — so they can freely scroll up through history without being yanked.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !isAtBottomRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [entries])
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }, [])
 
   return (
-    // Tap anywhere on the backdrop to close — guarantees an exit even if the
-    // small X is hard to hit (esp. on touch screens).
+    // Tap the backdrop to close. The scrollable entry list stops propagation so
+    // scrolling/tapping inside it never accidentally closes focus mode.
     <div
-      className="fixed inset-0 z-50 bg-black/97 backdrop-blur-md flex flex-col items-center justify-center"
+      className="fixed inset-0 z-50 bg-black/97 backdrop-blur-md flex flex-col"
       onClick={onClose}
     >
       {/* Ambient radial glow at bottom */}
@@ -48,37 +63,50 @@ export function FocusMode({ entries, status, onClose }: FocusModeProps) {
         ESC or tap to close
       </div>
 
-      {/* Entries */}
-      <div className="w-full max-w-3xl px-10 flex flex-col items-center gap-8 -translate-y-24">
-        {recent.length === 0 ? (
-          <p className="text-[#383838] text-xl font-light">No transcription yet</p>
+      {/* Entries — scrollable history, latest emphasized at the bottom */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        onClick={(e) => e.stopPropagation()}
+        className="relative flex-1 w-full overflow-y-auto"
+      >
+        {entries.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-[#383838] text-xl font-light">No transcription yet</p>
+          </div>
         ) : (
-          recent.map((entry, i) => {
-            const isLast = i === recent.length - 1
-            const opacity = i === 0 ? 'opacity-[0.22]' : i === 1 ? 'opacity-[0.5]' : 'opacity-100'
-            const size = isLast ? 'text-[38px] font-light tracking-tight leading-tight' : 'text-xl font-light'
+          <div className="max-w-3xl mx-auto px-10 flex flex-col items-center gap-8 pt-24 pb-32">
+            {entries.map((entry, i) => {
+              const isLast = i === entries.length - 1
+              const size = isLast
+                ? 'text-[38px] font-light tracking-tight leading-tight'
+                : 'text-2xl font-light'
 
-            return (
-              <div key={entry.id} className={`text-center ${opacity} transition-all duration-500`}>
-                <div className="text-[#484848] text-[10px] mb-2.5 font-mono tracking-[0.12em] uppercase">
-                  {entry.timestamp} · {entry.channelName.split(' ')[0]}
-                </div>
-                <div className={`text-white leading-relaxed ${size}`}>
-                  {entry.text}
-                </div>
-                {isLast && entry.translation && (
-                  <div className="text-blue-400/60 text-xl font-light italic mt-3 leading-relaxed">
-                    {entry.translation}
+              return (
+                <div
+                  key={entry.id}
+                  className={`text-center transition-all duration-500 ${isLast ? 'opacity-100' : 'opacity-60'}`}
+                >
+                  <div className="text-[#484848] text-[10px] mb-2.5 font-mono tracking-[0.12em] uppercase">
+                    {entry.timestamp} · {entry.channelName.split(' ')[0]}
                   </div>
-                )}
-              </div>
-            )
-          })
+                  <div className={`text-white leading-relaxed ${size}`}>
+                    {entry.text}
+                  </div>
+                  {entry.translation && (
+                    <div className="text-blue-400/60 text-xl font-light italic mt-3 leading-relaxed">
+                      {entry.translation}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
       {/* Status badge — bottom center */}
-      <div className="absolute bottom-8">
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-none">
         <StatusBadge status={status} />
       </div>
     </div>

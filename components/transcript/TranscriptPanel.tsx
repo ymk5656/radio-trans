@@ -26,31 +26,24 @@ export function TranscriptPanel({ entries, status, isTranslating, onTranslateTog
   const [copied, setCopied] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
-  const isProgrammaticScrollRef = useRef(false)
 
+  // Auto-follow: when the user is parked near the bottom, keep the view pinned
+  // to the latest line as new entries arrive or the font size reflows content.
+  // No scroll-handler suppression is used — scrolling to the bottom makes the
+  // resulting scroll event compute atBottom=true (within the 100px threshold),
+  // so the state self-stabilizes. The old programmatic-scroll flag could get
+  // stuck true (e.g. rAF throttled while the panel was hidden), which froze the
+  // scroll handler and permanently pinned the view; this avoids that entirely.
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !isAtBottomRef.current) return
-    // Suppress the scroll handler while we programmatically scroll so it
-    // cannot incorrectly flip isAtBottomRef to false due to layout timing.
-    isProgrammaticScrollRef.current = true
     el.scrollTop = el.scrollHeight
-    // Reset after two rAFs: first rAF = browser commits scroll, second = event fired
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        isProgrammaticScrollRef.current = false
-      })
-    })
-    // Re-anchor on fontSize too: a font change reflows content and would
-    // otherwise leave the view stranded above the bottom, breaking auto-scroll.
   }, [entries, fontSize])
 
   const handleScroll = useCallback(() => {
-    if (isProgrammaticScrollRef.current) return   // ignore programmatic scrolls
     const el = scrollRef.current
     if (!el) return
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
-    isAtBottomRef.current = atBottom
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
   }, [])
 
   const handleCopy = () => {

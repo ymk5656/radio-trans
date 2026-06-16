@@ -77,7 +77,9 @@ export function saveEQGains(gains: number[]): void {
 }
 
 // ── Playback delay persistence ────────────────────────────────────
-const DELAY_KEY = 'radio-trans:playback_delay'
+// v2: bumped so stale pre-3.0-default values are dropped and everyone
+// starts from the new 3.0 default.
+const DELAY_KEY = 'radio-trans:playback_delay_v2'
 
 export function getPlaybackDelay(): number {
   if (typeof window === 'undefined') return 3.0
