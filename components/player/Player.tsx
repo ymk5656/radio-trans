@@ -22,11 +22,16 @@ interface PlayerProps {
   syncNowRef?: MutableRefObject<(() => void) | null>
   // Home bridges the back-to-equalizer button to stop transcription here.
   stopTranscribeRef?: MutableRefObject<(() => void) | null>
+  // Sync-delay controls now live in the transcript panel: Player publishes the
+  // live values up and exposes setters via refs so the slider can drive them.
+  onSyncStateChange?: (s: { syncDelay: number; autoSync: boolean; measuredLatency: number }) => void
+  setSyncDelayRef?: MutableRefObject<((val: number) => void) | null>
+  toggleAutoSyncRef?: MutableRefObject<(() => void) | null>
 }
 
 type LoadState = 'idle' | 'resolving' | 'loading' | 'playing' | 'error-fallback'
 
-export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, isTranslating, syncNowRef, stopTranscribeRef }: PlayerProps) {
+export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, isTranslating, syncNowRef, stopTranscribeRef, onSyncStateChange, setSyncDelayRef, toggleAutoSyncRef }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hlsRef = useRef<any>(null)
@@ -450,6 +455,24 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
     }
   }, [stopTranscribing, stopTranscribeRef])
 
+  // Toggle auto-sync — bridged to the transcript panel's 자동 동조 button.
+  const toggleAutoSync = useCallback(() => setAutoSync(v => !v), [])
+
+  // Bridge the sync-delay slider + 자동 동조 toggle to the transcript panel.
+  useEffect(() => {
+    if (setSyncDelayRef) setSyncDelayRef.current = handleSyncDelayChange
+    if (toggleAutoSyncRef) toggleAutoSyncRef.current = toggleAutoSync
+    return () => {
+      if (setSyncDelayRef) setSyncDelayRef.current = null
+      if (toggleAutoSyncRef) toggleAutoSyncRef.current = null
+    }
+  }, [handleSyncDelayChange, toggleAutoSync, setSyncDelayRef, toggleAutoSyncRef])
+
+  // Publish live sync values up so the panel slider can reflect them.
+  useEffect(() => {
+    onSyncStateChange?.({ syncDelay, autoSync, measuredLatency })
+  }, [syncDelay, autoSync, measuredLatency, onSyncStateChange])
+
   // Pure iframe channel (user-added custom type)
   const isIframe = channel?.mode === 'iframe' && !channel.apiResolver && !channel.streamUrl
   const transcribeDisabled = isIframe
@@ -577,46 +600,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
               onClick={handleTranscribeToggle}
             />
             <StatusBadge status={transcribeStatus} errorMsg={errorMsg} />
-            {isTranscribing && (
-              <div className="w-full max-w-xs px-3 py-2 bg-[#1e1e1e] rounded-xl border border-[#333] mt-1">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] text-[#606060] uppercase tracking-widest font-medium">Sync Delay</span>
-                  <span className="text-[11px] text-[#909090] font-mono">{syncDelay.toFixed(1)}s</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={5}
-                  step={0.1}
-                  value={syncDelay}
-                  onChange={e => handleSyncDelayChange(parseFloat(e.target.value))}
-                  className="w-full h-1 appearance-none bg-[#404040] rounded-full outline-none cursor-pointer accent-green-500"
-                />
-                <div className="flex justify-between mt-1">
-                  <span className="text-[9px] text-[#484848]">0s</span>
-                  <span className="text-[9px] text-[#484848]">5s</span>
-                </div>
-                {/* 자동 동조 toggle + measured latency (the manual 동조 button now
-                    lives atop the transcript panel). */}
-                <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-[#333]">
-                  <button
-                    onClick={() => setAutoSync(v => !v)}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all duration-150 active:scale-90 ${
-                      autoSync
-                        ? 'bg-green-500/20 text-green-300'
-                        : 'text-[#707070] hover:text-[#f0f0f0] hover:bg-white/[0.06]'
-                    }`}
-                    title={autoSync ? '자동 동조 켜짐' : '자동 동조 꺼짐'}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${autoSync ? 'bg-green-400 animate-pulse' : 'bg-[#555]'}`} />
-                    자동 동조
-                  </button>
-                  <span className="text-[9px] text-[#606060] font-mono" title="측정된 전사 지연">
-                    ~{measuredLatency.toFixed(1)}s
-                  </span>
-                </div>
-              </div>
-            )}
+            {/* Sync Delay controls moved to the transcript panel (TranscriptPanel). */}
           </div>
         )}
       </div>

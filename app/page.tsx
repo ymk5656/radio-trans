@@ -33,6 +33,23 @@ export default function Home() {
   // so new entries stop arriving (otherwise they auto-switch back to transcript).
   const stopTranscribeRef = useRef<(() => void) | null>(null)
 
+  // Sync-delay controls live in the transcript panel now. Player publishes its
+  // live values up (mirrored here) and exposes setters through these refs.
+  const [syncDelay, setSyncDelay] = useState(0)
+  const [autoSync, setAutoSync] = useState(true)
+  const [measuredLatency, setMeasuredLatency] = useState(0)
+  const setSyncDelayRef = useRef<((val: number) => void) | null>(null)
+  const toggleAutoSyncRef = useRef<(() => void) | null>(null)
+
+  const handleSyncStateChange = useCallback(
+    (s: { syncDelay: number; autoSync: boolean; measuredLatency: number }) => {
+      setSyncDelay(s.syncDelay)
+      setAutoSync(s.autoSync)
+      setMeasuredLatency(s.measuredLatency)
+    },
+    []
+  )
+
   // Mobile state
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'player' | 'transcript'>('player')
@@ -159,6 +176,9 @@ export default function Home() {
             isTranslating={isTranslating}
             syncNowRef={syncNowRef}
             stopTranscribeRef={stopTranscribeRef}
+            onSyncStateChange={handleSyncStateChange}
+            setSyncDelayRef={setSyncDelayRef}
+            toggleAutoSyncRef={toggleAutoSyncRef}
           />
         </div>
 
@@ -172,6 +192,11 @@ export default function Home() {
             onSyncNow={handleSyncNow}
             syncActive={transcribeStatus !== 'idle'}
             onBackToPlayer={handleBackToPlayer}
+            syncDelay={syncDelay}
+            autoSync={autoSync}
+            measuredLatency={measuredLatency}
+            onSyncDelayChange={(v) => setSyncDelayRef.current?.(v)}
+            onAutoSyncToggle={() => toggleAutoSyncRef.current?.()}
           />
         </div>
       </div>

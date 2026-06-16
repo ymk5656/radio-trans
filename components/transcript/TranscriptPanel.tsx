@@ -18,9 +18,16 @@ interface TranscriptPanelProps {
   syncActive: boolean
   // Return to the player/equalizer screen (mobile single-panel layout).
   onBackToPlayer: () => void
+  // Sync-delay controls (moved here from the player). Values are mirrored from
+  // Player via Home; the handlers drive Player's setters through ref bridges.
+  syncDelay: number
+  autoSync: boolean
+  measuredLatency: number
+  onSyncDelayChange: (val: number) => void
+  onAutoSyncToggle: () => void
 }
 
-export function TranscriptPanel({ entries, status, isTranslating, onTranslateToggle, onSyncNow, syncActive, onBackToPlayer }: TranscriptPanelProps) {
+export function TranscriptPanel({ entries, status, isTranslating, onTranslateToggle, onSyncNow, syncActive, onBackToPlayer, syncDelay, autoSync, measuredLatency, onSyncDelayChange, onAutoSyncToggle }: TranscriptPanelProps) {
   const [fontSize, setFontSize] = useState(13)
   const [focusMode, setFocusMode] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -145,6 +152,43 @@ export function TranscriptPanel({ entries, status, isTranslating, onTranslateTog
           <Save size={13} />
         </button>
       </div>
+
+      {/* Sync Delay — moved here from the player. Active only while transcribing. */}
+      {syncActive && (
+        <div className="px-3 py-2 border-b border-[#404040]">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-[#606060] uppercase tracking-widest font-medium">Sync Delay</span>
+            <span className="text-[11px] text-[#909090] font-mono">{syncDelay.toFixed(1)}s</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={5}
+            step={0.1}
+            value={syncDelay}
+            onChange={e => onSyncDelayChange(parseFloat(e.target.value))}
+            className="w-full h-1 appearance-none bg-[#404040] rounded-full outline-none cursor-pointer accent-green-500"
+          />
+          <div className="flex items-center justify-between mt-2">
+            {/* 자동 동조 toggle + measured latency (manual 동조 button is above). */}
+            <button
+              onClick={onAutoSyncToggle}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all duration-150 active:scale-90 ${
+                autoSync
+                  ? 'bg-green-500/20 text-green-300'
+                  : 'text-[#707070] hover:text-[#f0f0f0] hover:bg-white/[0.06]'
+              }`}
+              title={autoSync ? '자동 동조 켜짐' : '자동 동조 꺼짐'}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${autoSync ? 'bg-green-400 animate-pulse' : 'bg-[#555]'}`} />
+              자동 동조
+            </button>
+            <span className="text-[9px] text-[#606060] font-mono" title="측정된 전사 지연">
+              ~{measuredLatency.toFixed(1)}s
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Entries */}
       <div
