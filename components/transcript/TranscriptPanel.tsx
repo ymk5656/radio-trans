@@ -26,23 +26,26 @@ export function TranscriptPanel({ entries, status, isTranslating, onTranslateTog
   const [copied, setCopied] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
+  const lastAutoScrollAt = useRef(0)
 
   // Auto-follow: when the user is parked near the bottom, keep the view pinned
   // to the latest line as new entries arrive or the font size reflows content.
-  // No scroll-handler suppression is used — scrolling to the bottom makes the
-  // resulting scroll event compute atBottom=true (within the 100px threshold),
-  // so the state self-stabilizes. The old programmatic-scroll flag could get
-  // stuck true (e.g. rAF throttled while the panel was hidden), which froze the
-  // scroll handler and permanently pinned the view; this avoids that entirely.
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !isAtBottomRef.current) return
+    lastAutoScrollAt.current = performance.now()
     el.scrollTop = el.scrollHeight
   }, [entries, fontSize])
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
+    // Ignore scroll events fired right after a programmatic auto-scroll. Rapid
+    // entry arrival can grow scrollHeight between our scrollTop set and the
+    // event firing, which would otherwise mis-flag the user as scrolled-up and
+    // freeze auto-follow. A time window (vs. a boolean flag) can never get
+    // stuck, so manual scrolls always register once it expires.
+    if (performance.now() - lastAutoScrollAt.current < 150) return
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
   }, [])
 

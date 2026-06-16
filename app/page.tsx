@@ -81,6 +81,13 @@ export default function Home() {
     setMobilePanel('transcript')
   }, [])
 
+  const handleStatusChange = useCallback((status: TranscribeStatus) => {
+    setTranscribeStatus(status)
+    // On mobile, jump to the transcript screen the moment transcription becomes
+    // active — don't wait for the first entry (the sync delay makes that lag).
+    if (status !== 'idle') setMobilePanel('transcript')
+  }, [])
+
   const handleSkipped = useCallback(() => {
     setSkippedCount(n => n + 1)
   }, [])
@@ -148,7 +155,7 @@ export default function Home() {
             channel={activeChannel}
             onTranscriptEntry={handleTranscriptEntry}
             onSkipped={handleSkipped}
-            onStatusChange={setTranscribeStatus}
+            onStatusChange={handleStatusChange}
             isTranslating={isTranslating}
             syncNowRef={syncNowRef}
             stopTranscribeRef={stopTranscribeRef}
