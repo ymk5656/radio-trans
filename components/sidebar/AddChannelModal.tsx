@@ -12,7 +12,7 @@ interface AddChannelModalProps {
 
 type Tab = 'recommended' | 'custom'
 
-const GROUP_ORDER = ['Favorites', 'Korean FM', 'BBC', 'US Public Radio', 'Europe', 'Asia', 'Latin America', 'Music']
+const GROUP_ORDER = ['Favorites', 'Korean FM', 'BBC', 'US Public Radio', 'Europe', 'Asia', 'Middle East', 'Latin America', 'Music']
 
 export function AddChannelModal({ existingIds, onClose, onAdd }: AddChannelModalProps) {
   const [mounted, setMounted] = useState(false)
