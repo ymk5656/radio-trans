@@ -26,29 +26,26 @@ export default function Home() {
   // output (TranscriptPanel) while the transcription loop (Player) still reads it.
   const [isTranslating, setIsTranslating] = useState(false)
 
-  // 동조 (sync-now) bridge: Player registers its handler here so the button,
-  // which now lives atop the transcript panel, can trigger it.
-  const syncNowRef = useRef<(() => void) | null>(null)
   // Stop-transcription bridge: the back-to-equalizer button stops the session
   // so new entries stop arriving (otherwise they auto-switch back to transcript).
   const stopTranscribeRef = useRef<(() => void) | null>(null)
 
-  // Sync-delay controls live in the transcript panel now. Player publishes its
-  // live values up (mirrored here) and exposes setters through these refs.
-  const [syncDelay, setSyncDelay] = useState(0)
-  const [autoSync, setAutoSync] = useState(true)
-  const [measuredLatency, setMeasuredLatency] = useState(0)
+  // Sync-delay control lives in the transcript panel now. Player publishes its
+  // live value up (mirrored here) and exposes the setter through this ref.
+  // Mirror default must match Player's source of truth: 3s delay.
+  const [syncDelay, setSyncDelay] = useState(3)
   const setSyncDelayRef = useRef<((val: number) => void) | null>(null)
-  const toggleAutoSyncRef = useRef<(() => void) | null>(null)
 
   const handleSyncStateChange = useCallback(
-    (s: { syncDelay: number; autoSync: boolean; measuredLatency: number }) => {
+    (s: { syncDelay: number }) => {
       setSyncDelay(s.syncDelay)
-      setAutoSync(s.autoSync)
-      setMeasuredLatency(s.measuredLatency)
     },
     []
   )
+
+  // Sticky reason transcription has stalled (e.g. daily Groq quota used up),
+  // bubbled up from the Player's hook and shown as a banner on the transcript.
+  const [transcribeError, setTranscribeError] = useState('')
 
   // Mobile state
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -98,6 +95,24 @@ export default function Home() {
     setMobilePanel('transcript')
   }, [])
 
+  // Patch an existing entry in place (e.g. fill in the async translation).
+  const handleTranscriptEntryUpdate = useCallback(
+    (id: string, patch: Partial<TranscriptEntry>) => {
+      setTranscripts(prev => {
+        let changed = false
+        const updated = prev.map(e => {
+          if (e.id !== id) return e
+          changed = true
+          return { ...e, ...patch }
+        })
+        if (!changed) return prev   // entry already dropped by the 500-cap
+        saveTranscripts(updated)
+        return updated
+      })
+    },
+    []
+  )
+
   const handleStatusChange = useCallback((status: TranscribeStatus) => {
     setTranscribeStatus(status)
     // On mobile, jump to the transcript screen the moment transcription becomes
@@ -122,8 +137,8 @@ export default function Home() {
     setIsTranslating(prev => !prev)
   }, [])
 
-  const handleSyncNow = useCallback(() => {
-    syncNowRef.current?.()
+  const handleTranscribeError = useCallback((message: string) => {
+    setTranscribeError(message)
   }, [])
 
   const handleBackToPlayer = useCallback(() => {
@@ -171,14 +186,14 @@ export default function Home() {
           <Player
             channel={activeChannel}
             onTranscriptEntry={handleTranscriptEntry}
+            onTranscriptEntryUpdate={handleTranscriptEntryUpdate}
             onSkipped={handleSkipped}
             onStatusChange={handleStatusChange}
             isTranslating={isTranslating}
-            syncNowRef={syncNowRef}
             stopTranscribeRef={stopTranscribeRef}
             onSyncStateChange={handleSyncStateChange}
             setSyncDelayRef={setSyncDelayRef}
-            toggleAutoSyncRef={toggleAutoSyncRef}
+            onTranscribeError={handleTranscribeError}
           />
         </div>
 
@@ -189,14 +204,11 @@ export default function Home() {
             status={transcribeStatus}
             isTranslating={isTranslating}
             onTranslateToggle={handleTranslateToggle}
-            onSyncNow={handleSyncNow}
             syncActive={transcribeStatus !== 'idle'}
             onBackToPlayer={handleBackToPlayer}
             syncDelay={syncDelay}
-            autoSync={autoSync}
-            measuredLatency={measuredLatency}
             onSyncDelayChange={(v) => setSyncDelayRef.current?.(v)}
-            onAutoSyncToggle={() => toggleAutoSyncRef.current?.()}
+            errorMessage={transcribeError}
           />
         </div>
       </div>

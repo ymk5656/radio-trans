@@ -1,15 +1,15 @@
 'use client'
+import { useState } from 'react'
 import {
   Save,
   LayoutGrid,
   Sliders,
   RefreshCw,
-  FolderOpen,
-  Settings,
   HelpCircle,
   FileText,
 } from 'lucide-react'
 import { TranscriptEntry, exportTranscriptsAsTxt } from '@/lib/storage'
+import { HelpModal } from './HelpModal'
 
 interface BottomBarProps {
   transcripts: TranscriptEntry[]
@@ -24,10 +24,12 @@ export function BottomBar({
   onRefresh,
   onSave,
 }: BottomBarProps) {
+  const [helpOpen, setHelpOpen] = useState(false)
   const iconBtn =
     'p-1.5 rounded-lg text-[#707070] hover:text-[#e0e0e0] hover:bg-white/[0.06] transition-all duration-150 active:scale-90'
 
   return (
+    <>
     <div className="flex items-center justify-between h-9 px-3 bg-[#181818] border-t border-[#333] flex-shrink-0">
       <div className="flex items-center gap-1">
         <button className={iconBtn} title="Save" onClick={onSave}>
@@ -51,16 +53,10 @@ export function BottomBar({
       </div>
 
       <div className="flex items-center gap-1">
-        <button className={iconBtn} title="Open">
-          <FolderOpen size={14} />
-        </button>
-        <button className={iconBtn} title="Settings">
-          <Settings size={14} />
-        </button>
-        <button className={iconBtn} title="Help">
+        <button className={iconBtn} title="도움말" onClick={() => setHelpOpen(true)}>
           <HelpCircle size={14} />
         </button>
-        <button className={iconBtn} title="Export">
+        <button className={iconBtn} title="Export as TXT" onClick={() => exportTranscriptsAsTxt(transcripts)}>
           <FileText size={14} />
         </button>
         <button
@@ -72,5 +68,7 @@ export function BottomBar({
         </button>
       </div>
     </div>
+    {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+    </>
   )
 }
