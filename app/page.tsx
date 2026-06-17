@@ -149,7 +149,7 @@ export default function Home() {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen bg-[#1c1c1c] overflow-hidden">
+    <div className="flex flex-col app-vh bg-[#1c1c1c] overflow-hidden">
       <TitleBar onMenuClick={() => setSidebarOpen(prev => !prev)} />
 
       <div className="flex flex-1 overflow-hidden relative">

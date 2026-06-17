@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ClipboardCopy, Maximize2, Mic, Globe, SlidersHorizontal } from 'lucide-react'
-import { TranscriptEntry } from '@/lib/storage'
+import { ClipboardCopy, Maximize2, Mic, Globe, SlidersHorizontal, FileText } from 'lucide-react'
+import { TranscriptEntry, exportTranscriptsAsTxt } from '@/lib/storage'
 import { TranscribeStatus } from '@/hooks/useTranscription'
 import { TranscriptEntryRow } from './TranscriptEntry'
 import { FocusMode } from './FocusMode'
@@ -135,6 +135,14 @@ export function TranscriptPanel({ entries, status, isTranslating, onTranslateTog
         {copied && (
           <span className="text-[10px] text-green-400">Copied!</span>
         )}
+        <button
+          onClick={() => exportTranscriptsAsTxt(entries)}
+          disabled={entries.length === 0}
+          className="p-1.5 rounded-lg text-[#707070] hover:text-[#f0f0f0] hover:bg-white/[0.06] transition-all duration-150 active:scale-90 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default"
+          title="Export as TXT"
+        >
+          <FileText size={12} />
+        </button>
         <button
           title="Font size"
           onClick={() => setFontSize(fontSize >= 24 ? 14 : fontSize + 2)}

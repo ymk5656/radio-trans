@@ -22,7 +22,11 @@ html,
 body {
   max-width: 100vw;
   overflow: hidden;
+  /* Mobile browsers report 100vh as the *large* viewport (address bar hidden),
+     so it overflows the visible area and clips bottom-anchored UI. 100dvh tracks
+     the currently visible viewport. Keep 100vh as a fallback for old browsers. */
   height: 100vh;
+  height: 100dvh;
   background-color: var(--bg-base);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -42,6 +46,14 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.22);
+}
+
+/* Full-height app shell. Use this instead of h-screen / 100vh for any
+   viewport-height container so bottom-anchored UI is never clipped by mobile
+   browser chrome. 100vh = fallback for old browsers; 100dvh = visible viewport. */
+.app-vh {
+  height: 100vh;
+  height: 100dvh;
 }
 
 /* Channel item drag state */
