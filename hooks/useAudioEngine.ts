@@ -28,6 +28,7 @@ export interface AudioEngine {
   /** Set speaker output delay in seconds (0 = no delay). Recording path is unaffected. */
   setDelay: (seconds: number) => void
   cleanup: () => void
+  cleanupNodes: () => void
 }
 
 export function useAudioEngine(): AudioEngine {
@@ -135,8 +136,12 @@ export function useAudioEngine(): AudioEngine {
   }, [])
 
   const setDelay = useCallback((seconds: number) => {
-    if (delayNodeRef.current) {
-      delayNodeRef.current.delayTime.value = Math.max(0, Math.min(5, seconds))
+    try {
+      if (delayNodeRef.current) {
+        delayNodeRef.current.delayTime.value = Math.max(0, Math.min(5, seconds))
+      }
+    } catch (e) {
+      console.error('Failed to set delay:', e)
     }
   }, [])
 
@@ -166,6 +171,27 @@ export function useAudioEngine(): AudioEngine {
     ctxRef.current = null
   }, [])
 
+  const cleanupNodes = useCallback(() => {
+    try {
+      sourceRef.current?.disconnect()
+      gainRef.current?.disconnect()
+      eqNodesRef.current?.forEach(n => n.disconnect())
+      analyserRef.current?.disconnect()
+      delayNodeRef.current?.disconnect()
+      destRef.current?.disconnect()
+    } catch (e) {
+      console.warn('Error during node disconnection:', e)
+    }
+
+    sourceRef.current = null
+    gainRef.current = null
+    eqNodesRef.current = null
+    analyserRef.current = null
+    delayNodeRef.current = null
+    destRef.current = null
+    mediaStreamRef.current = null
+  }, [])
+
   return {
     analyserRef,
     mediaStreamRef,
@@ -177,5 +203,6 @@ export function useAudioEngine(): AudioEngine {
     resetEQ,
     setDelay,
     cleanup,
+    cleanupNodes,
   }
 }

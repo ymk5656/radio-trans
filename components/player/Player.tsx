@@ -14,24 +14,26 @@ import { WifiOff, Radio } from 'lucide-react'
 interface PlayerProps {
   channel: Channel | null
   onTranscriptEntry: (entry: TranscriptEntry) => void
+  // Patch a committed entry (used to fill in the async Korean translation).
+  onTranscriptEntryUpdate?: (id: string, patch: Partial<TranscriptEntry>) => void
   onSkipped: () => void
   onStatusChange?: (status: TranscribeStatus) => void
   // Translate toggle is owned by Home (button lives above the transcript output).
   isTranslating: boolean
-  // Home bridges the 동조 button (now atop the transcript) to handleSyncNow here.
-  syncNowRef?: MutableRefObject<(() => void) | null>
   // Home bridges the back-to-equalizer button to stop transcription here.
   stopTranscribeRef?: MutableRefObject<(() => void) | null>
-  // Sync-delay controls now live in the transcript panel: Player publishes the
-  // live values up and exposes setters via refs so the slider can drive them.
-  onSyncStateChange?: (s: { syncDelay: number; autoSync: boolean; measuredLatency: number }) => void
+  // Sync-delay control now lives in the transcript panel: Player publishes the
+  // live value up and exposes the setter via a ref so the slider can drive it.
+  onSyncStateChange?: (s: { syncDelay: number }) => void
   setSyncDelayRef?: MutableRefObject<((val: number) => void) | null>
-  toggleAutoSyncRef?: MutableRefObject<(() => void) | null>
+  // Sticky reason transcription has stalled (e.g. daily Groq quota exhausted),
+  // bubbled up so the transcript panel can show it where the user is looking.
+  onTranscribeError?: (message: string) => void
 }
 
 type LoadState = 'idle' | 'resolving' | 'loading' | 'playing' | 'error-fallback'
 
-export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, isTranslating, syncNowRef, stopTranscribeRef, onSyncStateChange, setSyncDelayRef, toggleAutoSyncRef }: PlayerProps) {
+export function Player({ channel, onTranscriptEntry, onTranscriptEntryUpdate, onSkipped, onStatusChange, isTranslating, stopTranscribeRef, onSyncStateChange, setSyncDelayRef, onTranscribeError }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hlsRef = useRef<any>(null)
@@ -43,17 +45,9 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
   const stallCountRef = useRef<number>(0)
   const [volume, setVolume] = useState(1)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  // Manual sync delay only — delays speaker audio so it lands with its subtitle.
+  // Default is the saved value (3s). Adjusted solely by the user via the slider.
   const [syncDelay, setSyncDelay] = useState(() => getPlaybackDelay())
-  // ── Auto-sync (동조) ──────────────────────────────────────────────────────
-  // Keeps speaker audio aligned with the subtitle by delaying audio by the
-  // measured transcription latency. autoSync drives setDelay automatically;
-  // the 동조 button applies the latest measurement on demand.
-  const [autoSync, setAutoSync] = useState(true)
-  const [measuredLatency, setMeasuredLatency] = useState(0)
-  const autoSyncRef = useRef(true)
-  const isTranscribingRef = useRef(false)
-  const latencyEmaRef = useRef(0)        // EMA-smoothed latency (seconds)
-  const lastAppliedDelayRef = useRef(0)  // last value pushed to setDelay
   const [transcribeStatus, setTranscribeStatus] = useState<TranscribeStatus>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [loadState, setLoadState] = useState<LoadState>('idle')
@@ -74,6 +68,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
     setEQBand,
     resetEQ,
     setDelay,
+    cleanupNodes,
   } = useAudioEngine()
 
   useEffect(() => {
@@ -85,45 +80,31 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
     saveEQGains(gains)
   }, [])
 
-  // Per-chunk end-to-end latency report → drives auto-sync. We EMA-smooth the
-  // raw measurement and, when auto-sync is on, push it to the speaker DelayNode
-  // so the audio lands together with its subtitle. Threshold avoids jitter.
-  const handleLatency = useCallback((seconds: number) => {
-    const prev = latencyEmaRef.current
-    const ema = prev === 0 ? seconds : prev * 0.7 + seconds * 0.3
-    latencyEmaRef.current = ema
-    setMeasuredLatency(ema)
-    if (autoSyncRef.current && isTranscribingRef.current) {
-      const target = Math.min(5, Math.max(0, ema))
-      if (Math.abs(target - lastAppliedDelayRef.current) > 0.25) {
-        lastAppliedDelayRef.current = target
-        setDelay(target)
-        setSyncDelay(target)
-      }
-    }
-  }, [setDelay])
-
-  const { startTranscription, stopTranscription, status } = useTranscription({
+  const { startTranscription, stopTranscription, status, errorMessage: transcribeError } = useTranscription({
     mediaStreamRef,
     analyserRef,
     channelId: channel?.id ?? '',
     channelName: channel?.name ?? '',
     language: channel?.language,
     onEntry: onTranscriptEntry,
+    onEntryUpdate: onTranscriptEntryUpdate,
     onSkipped,
     isTranslatingRef,
-    onLatency: handleLatency,
   })
 
-  // Keep refs in sync with state — read by the async transcription/latency loops
+  // Keep ref in sync with state — read by the async transcription loop
   useEffect(() => { isTranslatingRef.current = isTranslating }, [isTranslating])
-  useEffect(() => { autoSyncRef.current = autoSync }, [autoSync])
-  useEffect(() => { isTranscribingRef.current = isTranscribing }, [isTranscribing])
 
   useEffect(() => {
     setTranscribeStatus(status)
     onStatusChange?.(status)
   }, [status, onStatusChange])
+
+  // Surface the hook's stall reason (e.g. daily quota) up to Home so it can be
+  // shown on the transcript screen where the user is watching subtitles.
+  useEffect(() => {
+    onTranscribeError?.(transcribeError)
+  }, [transcribeError, onTranscribeError])
 
   const destroyHLS = useCallback(() => {
     if (hlsRef.current) {
@@ -296,6 +277,8 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
       setIsTranscribing(false)
     }
 
+    cleanupNodes()
+
     destroyHLS()
     audio.pause()
     audio.src = ''
@@ -343,6 +326,7 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
         audio.play().catch(() => {})
       }
     }
+
 
     const id = setInterval(() => {
       const audio = audioRef.current
@@ -403,40 +387,19 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
       setDelay(0)
       setIsTranscribing(false)
     } else {
-      // Fresh sync session — drop stale latency estimate, start from saved delay
-      latencyEmaRef.current = 0
-      lastAppliedDelayRef.current = syncDelay
+      // Fresh sync session — apply the saved manual delay to the speaker audio.
       startTranscription()
       setDelay(syncDelay)
       setIsTranscribing(true)
     }
   }, [isTranscribing, startTranscription, stopTranscription, setDelay, syncDelay])
 
-  // Manual slider drag — user takes over, so disable auto-sync.
+  // Manual slider drag — set and persist the delay; apply live if transcribing.
   const handleSyncDelayChange = useCallback((val: number) => {
-    setAutoSync(false)
     setSyncDelay(val)
     savePlaybackDelay(val)
-    lastAppliedDelayRef.current = val
     if (isTranscribing) setDelay(val)
   }, [isTranscribing, setDelay])
-
-  // 동조 button — snap the speaker delay to the latest measured latency now.
-  const handleSyncNow = useCallback(() => {
-    const target = Math.min(5, Math.max(0, latencyEmaRef.current))
-    lastAppliedDelayRef.current = target
-    setSyncDelay(target)
-    savePlaybackDelay(target)
-    if (isTranscribing) setDelay(target)
-  }, [isTranscribing, setDelay])
-
-  // Expose 동조 to Home so the button can live atop the transcript panel.
-  useEffect(() => {
-    if (syncNowRef) syncNowRef.current = handleSyncNow
-    return () => {
-      if (syncNowRef) syncNowRef.current = null
-    }
-  }, [handleSyncNow, syncNowRef])
 
   // Stop the transcription session (no-op if not transcribing). Bridged to the
   // back-to-equalizer button so leaving the transcript also ends transcription.
@@ -455,23 +418,18 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
     }
   }, [stopTranscribing, stopTranscribeRef])
 
-  // Toggle auto-sync — bridged to the transcript panel's 자동 동조 button.
-  const toggleAutoSync = useCallback(() => setAutoSync(v => !v), [])
-
-  // Bridge the sync-delay slider + 자동 동조 toggle to the transcript panel.
+  // Bridge the sync-delay slider to the transcript panel.
   useEffect(() => {
     if (setSyncDelayRef) setSyncDelayRef.current = handleSyncDelayChange
-    if (toggleAutoSyncRef) toggleAutoSyncRef.current = toggleAutoSync
     return () => {
       if (setSyncDelayRef) setSyncDelayRef.current = null
-      if (toggleAutoSyncRef) toggleAutoSyncRef.current = null
     }
-  }, [handleSyncDelayChange, toggleAutoSync, setSyncDelayRef, toggleAutoSyncRef])
+  }, [handleSyncDelayChange, setSyncDelayRef])
 
-  // Publish live sync values up so the panel slider can reflect them.
+  // Publish the live sync delay up so the panel slider can reflect it.
   useEffect(() => {
-    onSyncStateChange?.({ syncDelay, autoSync, measuredLatency })
-  }, [syncDelay, autoSync, measuredLatency, onSyncStateChange])
+    onSyncStateChange?.({ syncDelay })
+  }, [syncDelay, onSyncStateChange])
 
   // Pure iframe channel (user-added custom type)
   const isIframe = channel?.mode === 'iframe' && !channel.apiResolver && !channel.streamUrl
@@ -606,10 +564,16 @@ export function Player({ channel, onTranscriptEntry, onSkipped, onStatusChange, 
       </div>
 
       <audio
+        key={channel?.id || 'none'}
         ref={audioRef}
         crossOrigin="anonymous"
         preload="none"
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setIsPlaying(true)
+          if (audioRef.current) {
+            initEngine(audioRef.current)
+          }
+        }}
         onPause={() => setIsPlaying(false)}
         onError={() => {
           setIsPlaying(false)

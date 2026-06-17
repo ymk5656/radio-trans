@@ -100,23 +100,46 @@ export async function GET(req: NextRequest) {
   // upstream socket when the consumer falls behind, chunks pile up unboundedly in the
   // controller queue (server memory) and the browser's forward buffer — which after a
   // few minutes leads to a stall. desiredSize ≤ 0 → pause reading; pull() → resume.
+  // Once the stream is closed/cancelled/errored, the controller must never be
+  // touched again. A Node 'data' event can still fire after the client
+  // disconnects (cancel) or after 'end'/'error' — enqueueing then throws
+  // ERR_INVALID_STATE ("Controller is already closed") and crashes the route.
+  // This flag makes every controller interaction a no-op once we're done.
+  let closed = false
   const stream = new ReadableStream({
     start(controller) {
       upstream.on('data', (chunk: Buffer) => {
-        controller.enqueue(new Uint8Array(chunk))
+        if (closed) return
+        try {
+          controller.enqueue(new Uint8Array(chunk))
+        } catch {
+          // Controller closed underneath us — stop pulling from upstream.
+          closed = true
+          upstream.destroy()
+          return
+        }
         if (controller.desiredSize !== null && controller.desiredSize <= 0) {
           upstream.pause()
         }
       })
-      upstream.on('end', () => controller.close())
-      upstream.on('error', (err: Error) => controller.error(err))
+      upstream.on('end', () => {
+        if (closed) return
+        closed = true
+        try { controller.close() } catch {}
+      })
+      upstream.on('error', (err: Error) => {
+        if (closed) return
+        closed = true
+        try { controller.error(err) } catch {}
+      })
     },
     pull() {
       // Consumer is ready for more — resume reading from upstream.
-      upstream.resume()
+      if (!closed) upstream.resume()
     },
     cancel() {
       // Client disconnected — destroy upstream connection
+      closed = true
       upstream.destroy()
     },
   })
