@@ -101,28 +101,6 @@ export const DEFAULT_CHANNELS: Channel[] = [
     logo: '/logos/ebs.png',
     order: 6,
   },
-
-  // ── Middle East ────────────────────────────────
-  {
-    id: 'aljazeera-en',
-    group: 'Middle East',
-    name: 'Al Jazeera English',
-    location: 'Doha, Qatar',
-    mode: 'stream',
-    streamUrl: 'https://live-hls-v3-aje.getaj.net/AJE/01.m3u8',
-    language: 'en',
-    order: 7,
-  },
-  {
-    id: 'aljazeera-ar',
-    group: 'Middle East',
-    name: 'الجزيرة (Al Jazeera Arabic)',
-    location: 'Doha, Qatar',
-    mode: 'stream',
-    streamUrl: 'https://live-hls-web-aja.getaj.net/AJA/01.m3u8',
-    language: 'ar',
-    order: 8,
-  },
 ]
 
 // ── Curated recommended channels for "Add Channel" modal ────────
@@ -237,6 +215,25 @@ export const RECOMMENDED_CHANNELS: Channel[] = [
     mode: 'stream',
     streamUrl: 'https://masterpl.hls.nhkworld.jp/hls/r1/live/master.m3u8',
     language: 'ja',
+  },
+  // Middle East
+  {
+    id: 'aljazeera-en',
+    group: 'Middle East',
+    name: 'Al Jazeera English',
+    location: 'Doha, Qatar',
+    mode: 'stream',
+    streamUrl: 'https://live-hls-v3-aje.getaj.net/AJE/01.m3u8',
+    language: 'en',
+  },
+  {
+    id: 'aljazeera-ar',
+    group: 'Middle East',
+    name: 'الجزيرة (Al Jazeera Arabic)',
+    location: 'Doha, Qatar',
+    mode: 'stream',
+    streamUrl: 'https://live-hls-web-aja.getaj.net/AJA/01.m3u8',
+    language: 'ar',
   },
   // Latin America
   {

@@ -12,7 +12,7 @@ export interface TranscriptEntry {
   translation?: string
 }
 
-const STORAGE_VERSION = 5  // bumped: added Al Jazeera English + Arabic (Middle East) to defaults
+const STORAGE_VERSION = 6  // bumped: moved Al Jazeera to recommended-only (out of defaults)
 
 export function loadChannels(): Channel[] {
   if (typeof window === 'undefined') return DEFAULT_CHANNELS
