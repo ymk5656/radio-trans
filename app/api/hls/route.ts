@@ -26,6 +26,7 @@ const ALLOWED_HOSTS = [
   'wfmu.org',
   'cnr.cn',                   // CNR 中国之声 (Voice of China) — HLS
   'nhkworld.jp',              // NHK ラジオ第1 — HLS (master + media-tyo variant host)
+  'getaj.net',                // Al Jazeera Arabic — HLS (live-hls-web-aja.getaj.net)
 ]
 
 function isAllowed(url: string): boolean {

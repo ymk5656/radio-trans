@@ -12,7 +12,7 @@ export interface TranscriptEntry {
   translation?: string
 }
 
-const STORAGE_VERSION = 3  // bumped: removed KCRW/KPCC/KQED/WBEZ dead channels
+const STORAGE_VERSION = 5  // bumped: added Al Jazeera English + Arabic (Middle East) to defaults
 
 export function loadChannels(): Channel[] {
   if (typeof window === 'undefined') return DEFAULT_CHANNELS
@@ -36,7 +36,11 @@ export function loadChannels(): Channel[] {
 
 export function saveChannels(channels: Channel[]): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(CHANNELS_KEY, JSON.stringify(channels))
+  try {
+    localStorage.setItem(CHANNELS_KEY, JSON.stringify(channels))
+  } catch (e) {
+    console.error('Failed to save channels:', e)
+  }
 }
 
 export function loadTranscripts(): TranscriptEntry[] {
@@ -52,8 +56,12 @@ export function loadTranscripts(): TranscriptEntry[] {
 
 export function saveTranscripts(entries: TranscriptEntry[]): void {
   if (typeof window === 'undefined') return
-  const capped = entries.slice(-500)
-  localStorage.setItem(TRANSCRIPTS_KEY, JSON.stringify(capped))
+  try {
+    const capped = entries.slice(-500)
+    localStorage.setItem(TRANSCRIPTS_KEY, JSON.stringify(capped))
+  } catch (e) {
+    console.error('Failed to save transcripts:', e)
+  }
 }
 
 // ── EQ persistence ──────────────────────────────────────────────
@@ -73,7 +81,11 @@ export function loadEQGains(): number[] {
 
 export function saveEQGains(gains: number[]): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(EQ_KEY, JSON.stringify(gains))
+  try {
+    localStorage.setItem(EQ_KEY, JSON.stringify(gains))
+  } catch (e) {
+    console.error('Failed to save EQ gains:', e)
+  }
 }
 
 // ── Playback delay persistence ────────────────────────────────────
@@ -91,7 +103,11 @@ export function getPlaybackDelay(): number {
 
 export function savePlaybackDelay(seconds: number): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(DELAY_KEY, String(Math.max(0, Math.min(5, seconds))))
+  try {
+    localStorage.setItem(DELAY_KEY, String(Math.max(0, Math.min(5, seconds))))
+  } catch (e) {
+    console.error('Failed to save playback delay:', e)
+  }
 }
 
 export function exportTranscriptsAsTxt(entries: TranscriptEntry[]): void {
